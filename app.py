@@ -8,35 +8,50 @@ st.set_page_config(page_title="Dashboard Topa+ Realtime", layout="wide")
 # Conectando ao Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-@st.cache_data(ttl=600) # Atualiza os dados a cada 10 minutos
+@st.cache_data(ttl=600)
 def load_data():
-    # Lendo as abas específicas via nome
+    # Lendo as abas. 
+    # DICA: Se o erro persistir, tente passar a URL diretamente aqui como spreadsheet="LINK_CORRETO"
     df_dez = conn.read(worksheet="Dados brutos - Dez")
     df_jan = conn.read(worksheet="Dados brutos - Jan")
+    
+    # Garantir que não tragamos colunas vazias que as vezes o Sheets cria
+    df_dez = df_dez.dropna(how='all', axis=0)
+    df_jan = df_jan.dropna(how='all', axis=0)
     
     # Concatenando
     df = pd.concat([df_dez, df_jan], ignore_index=True)
     return df
 
-df = load_data()
+# Tratamento de erro amigável para a carga de dados
+try:
+    df = load_data()
+except Exception as e:
+    st.error("Erro ao conectar com a planilha. Verifique a URL nos Secrets.")
+    st.stop()
 
 # --- SIDEBAR ---
 st.sidebar.header("Filtros")
-# Coluna Q é "Digitado por"
-digitadores = sorted(df['Digitado por'].dropna().unique().tolist())
-digitador_selecionado = st.sidebar.selectbox("Selecione o Digitador", ["Todos"] + digitadores)
 
-# Filtragem
-df_filtered = df if digitador_selecionado == "Todos" else df[df['Digitado por'] == digitador_selecionado]
+# Validando se a coluna existe antes de filtrar
+if 'Digitado por' in df.columns:
+    digitadores = sorted(df['Digitado por'].dropna().unique().tolist())
+    digitador_selecionado = st.sidebar.selectbox("Selecione o Digitador", ["Todos"] + digitadores)
+    df_filtered = df if digitador_selecionado == "Todos" else df[df['Digitado por'] == digitador_selecionado]
+else:
+    st.error("Coluna 'Digitado por' não encontrada na planilha.")
+    st.stop()
 
 # --- FUNIL DE VENDAS ---
 st.title(f"📊 Funil de Recusas - {digitador_selecionado}")
 
-# Mapeamento conforme colunas da sua planilha
+# Mapeamento com filtros de segurança para evitar erros de Key
+def safe_len(mask): return len(df_filtered[mask])
+
 leads = len(df_filtered)
-token_ok = len(df_filtered[df_filtered['status_da_proposta'].notna()])
-no_motor = len(df_filtered[df_filtered['status_da_analise'] == 'REJECTED'])
-pagos = len(df_filtered[df_filtered['status_da_proposta'] == 'DISBURSED'])
+token_ok = safe_len(df_filtered['status_da_proposta'].notna()) if 'status_da_proposta' in df.columns else 0
+no_motor = safe_len(df_filtered['status_da_analise'] == 'REJECTED') if 'status_da_analise' in df.columns else 0
+pagos = safe_len(df_filtered['status_da_proposta'] == 'DISBURSED') if 'status_da_proposta' in df.columns else 0
 
 fig = go.Figure(go.Funnel(
     y = ["Novos Leads", "Token Enviado/Aprovado", "Chegou no Motor", "Contratos Pagos"],
@@ -51,16 +66,20 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("⚠️ Motivos Pré-Motor (Analítico)")
-    # Analisando motivos de 'status_da_analise' que não são REJECTED/APPROVED
-    motivos_pre = df_filtered[~df_filtered['status_da_analise'].isin(['REJECTED', 'APPROVED'])]['status_da_analise'].value_counts()
-    st.bar_chart(motivos_pre)
+    if 'status_da_analise' in df_filtered.columns:
+        motivos_pre = df_filtered[~df_filtered['status_da_analise'].isin(['REJECTED', 'APPROVED'])]['status_da_analise'].value_counts()
+        st.bar_chart(motivos_pre)
+    else:
+        st.info("Coluna 'status_da_analise' não disponível.")
 
 with col2:
     st.subheader("🚫 Motivos de Decisão (Motor)")
-    # Analisando a coluna 'motivo_da_decisao'
-    motivos_motor = df_filtered['motivo_da_decisao'].value_counts()
-    st.dataframe(motivos_motor)
+    if 'motivo_da_decisao' in df_filtered.columns:
+        motivos_motor = df_filtered['motivo_da_decisao'].value_counts()
+        st.dataframe(motivos_motor, use_container_width=True)
+    else:
+        st.info("Coluna 'motivo_da_decisao' não disponível.")
 
 # Dados detalhados
 with st.expander("Visualizar Dados Brutos"):
-    st.write(df_filtered)
+    st.dataframe(df_filtered)
