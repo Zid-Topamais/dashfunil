@@ -1,85 +1,11 @@
-import streamlit as st
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
-import plotly.graph_objects as go
-
-st.set_page_config(page_title="Dashboard Topa+ Realtime", layout="wide")
-
-# Conectando ao Google Sheets
-conn = st.connection("gsheets", type=GSheetsConnection)
-
 @st.cache_data(ttl=600)
 def load_data():
-    # Lendo as abas. 
-    # DICA: Se o erro persistir, tente passar a URL diretamente aqui como spreadsheet="LINK_CORRETO"
-    df_dez = conn.read(worksheet="Dados brutos - Dez")
-    df_jan = conn.read(worksheet="Dados brutos - Jan")
+    # URL Hardcoded para teste de diagnóstico
+    test_url = "https://docs.google.com/spreadsheets/d/1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I/edit#gid=945417474"
     
-    # Garantir que não tragamos colunas vazias que as vezes o Sheets cria
-    df_dez = df_dez.dropna(how='all', axis=0)
-    df_jan = df_jan.dropna(how='all', axis=0)
+    # Passamos a URL diretamente aqui
+    df_dez = conn.read(spreadsheet=test_url, worksheet="Dados brutos - Dez")
+    df_jan = conn.read(spreadsheet=test_url, worksheet="Dados brutos - Jan")
     
-    # Concatenando
     df = pd.concat([df_dez, df_jan], ignore_index=True)
     return df
-
-# Tratamento de erro amigável para a carga de dados
-try:
-    df = load_data()
-except Exception as e:
-    st.error("Erro ao conectar com a planilha. Verifique a URL nos Secrets.")
-    st.stop()
-
-# --- SIDEBAR ---
-st.sidebar.header("Filtros")
-
-# Validando se a coluna existe antes de filtrar
-if 'Digitado por' in df.columns:
-    digitadores = sorted(df['Digitado por'].dropna().unique().tolist())
-    digitador_selecionado = st.sidebar.selectbox("Selecione o Digitador", ["Todos"] + digitadores)
-    df_filtered = df if digitador_selecionado == "Todos" else df[df['Digitado por'] == digitador_selecionado]
-else:
-    st.error("Coluna 'Digitado por' não encontrada na planilha.")
-    st.stop()
-
-# --- FUNIL DE VENDAS ---
-st.title(f"📊 Funil de Recusas - {digitador_selecionado}")
-
-# Mapeamento com filtros de segurança para evitar erros de Key
-def safe_len(mask): return len(df_filtered[mask])
-
-leads = len(df_filtered)
-token_ok = safe_len(df_filtered['status_da_proposta'].notna()) if 'status_da_proposta' in df.columns else 0
-no_motor = safe_len(df_filtered['status_da_analise'] == 'REJECTED') if 'status_da_analise' in df.columns else 0
-pagos = safe_len(df_filtered['status_da_proposta'] == 'DISBURSED') if 'status_da_proposta' in df.columns else 0
-
-fig = go.Figure(go.Funnel(
-    y = ["Novos Leads", "Token Enviado/Aprovado", "Chegou no Motor", "Contratos Pagos"],
-    x = [leads, token_ok, no_motor, pagos],
-    textinfo = "value+percent initial"
-))
-
-st.plotly_chart(fig, use_container_width=True)
-
-# --- DRILL DOWN DE RECUSAS ---
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("⚠️ Motivos Pré-Motor (Analítico)")
-    if 'status_da_analise' in df_filtered.columns:
-        motivos_pre = df_filtered[~df_filtered['status_da_analise'].isin(['REJECTED', 'APPROVED'])]['status_da_analise'].value_counts()
-        st.bar_chart(motivos_pre)
-    else:
-        st.info("Coluna 'status_da_analise' não disponível.")
-
-with col2:
-    st.subheader("🚫 Motivos de Decisão (Motor)")
-    if 'motivo_da_decisao' in df_filtered.columns:
-        motivos_motor = df_filtered['motivo_da_decisao'].value_counts()
-        st.dataframe(motivos_motor, use_container_width=True)
-    else:
-        st.info("Coluna 'motivo_da_decisao' não disponível.")
-
-# Dados detalhados
-with st.expander("Visualizar Dados Brutos"):
-    st.dataframe(df_filtered)
