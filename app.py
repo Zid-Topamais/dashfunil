@@ -178,23 +178,31 @@ with c1:
 with c2:
    def block_ui(label, val, p, df_s, df_m, mapping, col):
     with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
-        if not df_s.empty:
-            # 1. Mapeia os status originais para as descrições finais
-            df_s_mapped = df_s[df_s[col].isin(mapping.keys())].copy()
-            df_s_mapped['Descrição'] = df_s_mapped[col].map(mapping)
+        # Filtra apenas linhas que possuem os status que mapeamos
+        df_sub_s = df_s[df_s[col].isin(mapping.keys())].copy()
+        df_sub_m = df_m[df_m[col].isin(mapping.keys())].copy()
+        
+        if not df_sub_s.empty:
+            # Atribui a descrição amigável
+            df_sub_s['Descrição'] = df_sub_s[col].map(mapping)
+            df_sub_m['Descrição'] = df_sub_m[col].map(mapping)
             
-            df_m_mapped = df_m[df_m[col].isin(mapping.keys())].copy()
-            df_m_mapped['Descrição'] = df_m_mapped[col].map(mapping)
-
-            # 2. Agrupa por 'Descrição' para somar os status duplicados (como o CLT)
-            counts_s = df_s_mapped.groupby('Descrição').size().reset_index(name='Qtd_Sel')
-            counts_m = df_m_mapped.groupby('Descrição').size().reset_index(name='Total_Mes')
+            # AGRUPAMENTO: Aqui é onde somamos os duplicados (ex: os dois tipos de CLT)
+            counts_s = df_sub_s.groupby('Descrição').size().reset_index(name='Qtd_Sel')
+            counts_m = df_sub_m.groupby('Descrição').size().reset_index(name='Total_Mes')
             
-            # 3. Faz o merge final para exibição
-            res = pd.merge(counts_s, counts_m, on='Descrição')
-            res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).map("{:.1f}%".format)
+            # Une os dados da seleção com o total do mês para calcular o %
+            res = pd.merge(counts_s, counts_m, on='Descrição', how='left')
+            
+            # Calcula o percentual de representatividade
+            res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).fillna(0).map("{:.1f}%".format)
+            
+            # Ordena do maior para o menor para facilitar a leitura
+            res = res.sort_values(by='Qtd_Sel', ascending=False)
             
             st.table(res[['Descrição', 'Qtd_Sel', '%']])
+        else:
+            st.info("Sem registros detalhados para esta categoria na seleção atual.")
 
     block_ui("Novos Leads", n_sel, p_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
     block_ui("Leads com Token Aprovado", tok_s, p_tok, df_sel, df_mes, map_pre_motor, 'status_da_analise')
