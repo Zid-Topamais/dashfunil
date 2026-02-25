@@ -36,7 +36,7 @@ df_base = load_data()
 # --- FILTROS LATERAIS ---
 def reset_filtros():
     # Adicionamos as novas chaves aqui para limpar tudo
-    for k in ['digitador_unico', 'top15_multi', 'parceiro_sel', 'equipe_sel']:
+    for k in ['digitador_unico', 'top15_multi', 'empresa_sel', 'squad_sel']:
         if k in st.session_state: del st.session_state[k]
     st.rerun()
 
@@ -46,23 +46,23 @@ st.sidebar.header("Configurações do Funil")
 mes_sel = st.sidebar.selectbox("Mês de Referência", ["Todos"] + sorted(df_base['Filtro_Mes'].unique().tolist()))
 df_mes = df_base if mes_sel == "Todos" else df_base[df_base['Filtro_Mes'] == mes_sel]
 
-# 2. Filtro de Parceiro (Coluna R)
-lista_parceiros = ["Todos"] + sorted(df_mes['Parceiro'].dropna().unique().tolist()) # Assumindo que o nome da coluna R seja 'Parceiro'
-parceiro_sel = st.sidebar.selectbox("Filtrar Parceiro", lista_parceiros, key="parceiro_sel")
+# 2. Filtro de Empresa (Coluna R)
+lista_empresa = ["Todos"] + sorted(df_mes['Empresa'].dropna().unique().tolist()) # Assumindo que o nome da coluna R seja 'Empresa'
+empresa_sel = st.sidebar.selectbox("Filtrar Empresa", lista_empresa, key="empresa_sel")
 
-df_parceiro = df_mes.copy()
-if parceiro_sel != "Todos":
-    df_parceiro = df_parceiro[df_parceiro['Parceiro'] == parceiro_sel]
+df_empresa = df_mes.copy()
+if empresa_sel != "Todos":
+    df_empresa = df_empresa[df_empresa['empresa'] == empresa_sel]
 
-# 3. Filtro de Equipe (Coluna S) - Dinâmico conforme o Parceiro
-lista_equipes = ["Todos"] + sorted(df_parceiro['Equipe'].dropna().unique().tolist()) # Assumindo que o nome da coluna S seja 'Equipe'
+# 3. Filtro de Equipe (Coluna S) - Dinâmico conforme o Empresa
+lista_equipes = ["Todos"] + sorted(df_Empresa['Equipe'].dropna().unique().tolist()) # Assumindo que o nome da coluna S seja 'Equipe'
 equipe_sel = st.sidebar.selectbox("Filtrar Equipe", lista_equipes, key="equipe_sel")
 
-df_equipe = df_parceiro.copy()
+df_equipe = df_empresa.copy()
 if equipe_sel != "Todos":
     df_equipe = df_equipe[df_equipe['Equipe'] == equipe_sel]
 
-# 4. Top 15 Pagos (Agora filtrado por Parceiro e Equipe também)
+# 4. Top 15 Pagos (Agora filtrado por Empresa e Equipe também)
 top_15_pagos = df_equipe[df_equipe['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(15).index.tolist()
 
 # 5. Filtros de Digitador
