@@ -10,7 +10,6 @@ def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
     url_dez = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Dez"
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
-    
     try:
         df_dez = pd.read_csv(url_dez)
         df_jan = pd.read_csv(url_jan)
@@ -27,32 +26,43 @@ def load_data():
 
 df_base = load_data()
 
-# --- SIDEBAR ---
+# --- LÓGICA DE FILTROS ---
 st.sidebar.header("Filtros de Visão")
+
+# Mês é a base de tudo
 lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].dropna().unique().tolist())
 mes_sel = st.sidebar.selectbox("Selecione o Mês", lista_meses)
-opcoes_digitador = ["Todos"] + sorted(df_base['Digitado por'].dropna().unique().tolist())
-dig_sel = st.sidebar.selectbox("Selecione o Digitador", opcoes_digitador)
 
-df = df_base.copy()
-if mes_sel != "Todos": df = df[df['Filtro_Mes'] == mes_sel]
-if dig_sel != "Todos": df = df[df['Digitado por'] == dig_sel]
+df_mes = df_base.copy()
+if mes_sel != "Todos":
+    df_mes = df_mes[df_mes['Filtro_Mes'] == mes_sel]
 
-# --- LÓGICA DO FUNIL COM NOMENCLATURA OFICIAL ---
+# Cálculo do Top 10 para o Sidebar
+top_10_list = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(10).index.tolist()
 
-# 1. Novos Leads
-novos_leads = len(df)
-# Sub: Leads Não Engajados
-map_nao_engajados = {
-    'CREATED': 'Proposta Iniciada',
-    'TOKEN_SENT': 'Token Enviado'
-}
-df_nao_engajados = df[df['status_da_proposta'].isin(map_nao_engajados.keys())]
-total_nao_engajados = len(df_nao_engajados)
+# Bloqueio de Filtros
+if 'last_filter' not in st.session_state: st.session_state.last_filter = None
 
-# 2. Leads com Token Aprovado
-leads_token_aprovado = novos_leads - total_nao_engajados
-# Sub: Propostas Rejeitadas Pré Motor de Crédito
+dig_sel = st.sidebar.selectbox("Selecione o Digitador", ["Todos"] + sorted(df_base['Digitado por'].unique().tolist()), 
+                               disabled=(st.session_state.last_filter == "top10"))
+top10_sel = st.sidebar.multiselect("Digitadores Top 10 (Pagos)", top_10_list, 
+                                   disabled=(st.session_state.last_filter == "unico" and dig_sel != "Todos"))
+
+if dig_sel != "Todos": st.session_state.last_filter = "unico"
+elif top10_sel: st.session_state.last_filter = "top10"
+else: st.session_state.last_filter = None
+
+if st.sidebar.button("Limpar Filtros"):
+    st.session_state.last_filter = None
+    st.rerun()
+
+# Aplicação da seleção
+df_sel = df_mes.copy()
+if top10_sel: df_sel = df_sel[df_sel['Digitado por'].isin(top10_sel)]
+elif dig_sel != "Todos": df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
+
+# --- DICIONÁRIOS DE MAPEAMENTO (EXATAMENTE COMO VOCÊ PASSOU) ---
+map_nao_engajados = {'CREATED': 'Proposta Iniciada', 'TOKEN_SENT': 'Token Enviado'}
 map_pre_motor = {
     'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
     'CPF_EMPLOYER': 'Dataprev - Negado - Não É CLT',
@@ -61,12 +71,6 @@ map_pre_motor = {
     'FAILED_DATAPREV': 'Dataprev - DataPrev Fora',
     'CREDIT_ENGINE_ERROR': 'Bull - Erro no Motor Bull'
 }
-df_pre_motor = df[df['status_da_analise'].isin(map_pre_motor.keys())]
-total_pre_motor = len(df_pre_motor)
-
-# 3. Leads Sujeito a Motor de Crédito
-leads_sujeito_motor = leads_token_aprovado - total_pre_motor
-# Sub: Propostas Rejeitadas No Motor De Crédito
 map_motor = {
     'Quantidade de Funcionarios': 'Porte Empresa - CNPJ',
     'Negar = Quantidade de Funcionarios entre 1 e 50': 'Porte Empresa - CNPJ',
@@ -90,23 +94,7 @@ map_motor = {
     'Pessoa Exposta Politicamente': 'PEP - PF',
     'Cliente nao encontrado na base Quod Consulta PF': 'CPF ñ Encontrado Quod - PF'
 }
-df_no_motor = df[df['motivo_da_decisao'].isin(map_motor.keys())]
-total_no_motor = len(df_no_motor)
-
-# 4. Leads Com Propostas Disponíveis
-propostas_disponiveis = leads_sujeito_motor - total_no_motor
-# Sub: Propostas Que Não Avançaram para Contrato
-map_nao_avancaram = {
-    'CREDIT_CHECK_COMPLETED': 'Proposta não Aceita',
-    'PRE_ACCEPTED': 'Proposta Ajustada',
-    'CONTRACT_GENERATION_FAILED': 'Erro no Contrato'
-}
-df_nao_avancaram = df[df['status_da_proposta'].isin(map_nao_avancaram.keys())]
-total_nao_avancaram = len(df_nao_avancaram)
-
-# 5. Leads com Contrato Gerado
-contrato_gerado = propostas_disponiveis - total_nao_avancaram
-# Sub: Contratos Não Validados
+map_nao_avancaram = {'CREDIT_CHECK_COMPLETED': 'Proposta não Aceita', 'PRE_ACCEPTED': 'Proposta Ajustada', 'CONTRACT_GENERATION_FAILED': 'Erro no Contrato'}
 map_nao_validados = {
     'SIGNATURE_FAILED': 'Contrato Recusado no AntiFraude',
     'CANCELED': 'Cancelado pelo Tomador Pré Desembolso',
@@ -115,49 +103,89 @@ map_nao_validados = {
     'ERROR': 'Falha na averbação',
     'CANCELLED_BY_USER': 'Cancelado pelo Tomador Pós Desembolso'
 }
-df_nao_validados = df[df['status_da_proposta'].isin(map_nao_validados.keys())]
-total_nao_validados = len(df_nao_validados)
 
-# 6. Contratos Pagos
-contratos_pagos = len(df[df['status_da_proposta'] == 'DISBURSED'])
+# --- PROCESSAMENTO DO FUNIL (Soma e % ) ---
+def calc_etapa(df_current, df_ref_mes, keys, col):
+    sel = len(df_current[df_current[col].isin(keys)])
+    total_mes = len(df_ref_mes[df_ref_mes[col].isin(keys)])
+    perc = (sel / total_mes * 100) if total_mes > 0 else 0
+    return sel, total_mes, perc
 
-# --- DISPLAY 50/50 ---
-st.title("📊 Dashboard Analítico Funil Topa+")
-st.divider()
+# 1. Novos Leads
+n_leads_sel = len(df_sel)
+n_leads_mes = len(df_mes)
+perc_leads = (n_leads_sel / n_leads_mes * 100) if n_leads_mes > 0 else 0
 
-col_funil, col_detalhe = st.columns([1, 1])
+# Sub: Não Engajados
+v_eng_sel, v_eng_mes, p_eng = calc_etapa(df_sel, df_mes, map_nao_engajados.keys(), 'status_da_proposta')
 
-with col_funil:
-    st.subheader("🎯 Funil de Conversão")
+# 2. Token Aprovado
+token_sel = n_leads_sel - v_eng_sel
+token_mes = n_leads_mes - v_eng_mes
+perc_token = (token_sel / token_mes * 100) if token_mes > 0 else 0
+
+# Sub: Rejeitadas Pré Motor
+v_pre_sel, v_pre_mes, p_pre = calc_etapa(df_sel, df_mes, map_pre_motor.keys(), 'status_da_analise')
+
+# 3. Sujeito a Motor
+motor_sel = token_sel - v_pre_sel
+motor_mes = token_mes - v_pre_mes
+perc_motor_cat = (motor_sel / motor_mes * 100) if motor_mes > 0 else 0
+
+# Sub: Rejeitadas No Motor
+v_mot_sel, v_mot_mes, p_mot = calc_etapa(df_sel, df_mes, map_motor.keys(), 'motivo_da_decisao')
+
+# 4. Propostas Disponíveis
+disp_sel = motor_sel - v_mot_sel
+disp_mes = motor_mes - v_mot_mes
+perc_disp = (disp_sel / disp_mes * 100) if disp_mes > 0 else 0
+
+# Sub: Não Avançaram
+v_nav_sel, v_nav_mes, p_nav = calc_etapa(df_sel, df_mes, map_nao_avancaram.keys(), 'status_da_proposta')
+
+# 5. Contrato Gerado
+ger_sel = disp_sel - v_nav_sel
+ger_mes = disp_mes - v_nav_mes
+perc_ger = (ger_sel / ger_mes * 100) if ger_mes > 0 else 0
+
+# Sub: Não Validados
+v_nva_sel, v_nva_mes, p_nva = calc_etapa(df_sel, df_mes, map_nao_validados.keys(), 'status_da_proposta')
+
+# 6. Pagos
+pag_sel = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
+pag_mes = len(df_mes[df_mes['status_da_proposta'] == 'DISBURSED'])
+perc_pag = (pag_sel / pag_mes * 100) if pag_mes > 0 else 0
+
+# --- INTERFACE ---
+st.title("📊 Funil Topa+ Analítico")
+col1, col2 = st.columns([1, 1])
+
+with col1:
     fig = go.Figure(go.Funnel(
-        y = ["Novos Leads", "Token Aprovado", "Sujeito a Motor", "Propostas Disp.", "Contrato Gerado", "Pagos"],
-        x = [novos_leads, leads_token_aprovado, leads_sujeito_motor, propostas_disponiveis, contrato_gerado, contratos_pagos],
-        textinfo = "value+percent initial",
-        marker = {"color": ["#1f4e78", "#2e75b6", "#5b9bd5", "#9bc2e6", "#ddebf7", "#548235"]}
+        y=["Novos Leads", "Token Aprovado", "Sujeito a Motor", "Disp.", "Gerado", "Pagos"],
+        x=[n_leads_sel, token_sel, motor_sel, disp_sel, ger_sel, pag_sel],
+        textinfo="value+percent initial"
     ))
     st.plotly_chart(fig, use_container_width=True)
 
-with col_detalhe:
-    st.subheader("🎯 Funil de Categorias")
+with col2:
+    def draw_expander(label, val_sel, p_cat, df_s, df_m, mapping, col):
+        with st.expander(f"📌 {label}: {val_sel} ({p_cat:.1f}%)"):
+            if not df_s.empty:
+                counts_s = df_s[df_s[col].isin(mapping.keys())][col].value_counts().reset_index()
+                counts_m = df_m[df_m[col].isin(mapping.keys())][col].value_counts().reset_index()
+                counts_s.columns = ['ID', 'Qtd_Sel']
+                counts_m.columns = ['ID', 'Total_Mes']
+                df_res = pd.merge(counts_s, counts_m, on='ID')
+                df_res['Descrição'] = df_res['ID'].map(mapping)
+                df_res['%'] = (df_res['Qtd_Sel'] / df_res['Total_Mes'] * 100).map("{:.1f}%".format)
+                st.table(df_res[['Descrição', 'Qtd_Sel', '%']])
+            else: st.info("Sem dados.")
 
-    def render_block(titulo, total_cat, df_sub, mapping, col_ref):
-        with st.expander(f"📌 {titulo}: {total_cat}"):
-            if not df_sub.empty:
-                res = df_sub[col_ref].value_counts().reset_index()
-                res.columns = ['Status', 'Qtd']
-                res['Descrição Apresentada'] = res['Status'].map(mapping)
-                final = res.groupby('Descrição Apresentada')['Qtd'].sum().reset_index()
-                st.table(final)
-                st.warning(f"**Total: {final['Qtd'].sum()}**")
-            else:
-                st.info("Sem registros nesta subcategoria.")
-
-    render_block("Novos Leads", novos_leads, df_nao_engajados, map_nao_engajados, 'status_da_proposta')
-    render_block("Leads com Token Aprovado", leads_token_aprovado, df_pre_motor, map_pre_motor, 'status_da_analise')
-    render_block("Leads Sujeito a Motor de Crédito", leads_sujeito_motor, df_no_motor, map_motor, 'motivo_da_decisao')
-    render_block("Leads Com Propostas Disponíveis", propostas_disponiveis, df_nao_avancaram, map_nao_avancaram, 'status_da_proposta')
-    render_block("Leads com Contrato Gerado", contrato_gerado, df_nao_validados, map_nao_validados, 'status_da_proposta')
-    
-    with st.expander(f"✅ Contratos Pagos: {contratos_pagos}"):
-        st.success(f"Contrato Pago: {contratos_pagos}")
-
+    draw_expander("Novos Leads", n_leads_sel, perc_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
+    draw_expander("Leads com Token Aprovado", token_sel, perc_token, df_sel, df_mes, map_pre_motor, 'status_da_analise')
+    draw_expander("Leads Sujeito a Motor", motor_sel, perc_motor_cat, df_sel, df_mes, map_motor, 'motivo_da_decisao')
+    draw_expander("Propostas Disponíveis", disp_sel, perc_disp, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
+    draw_expander("Contrato Gerado", ger_sel, perc_ger, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
+    with st.expander(f"✅ Contratos Pagos: {pag_sel} ({perc_pag:.1f}%)"):
+        st.success(f"Pago: {pag_sel} de {pag_mes} totais.")
