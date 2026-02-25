@@ -10,6 +10,7 @@ def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
     url_dez = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Dez"
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
+    
     try:
         df_dez = pd.read_csv(url_dez)
         df_jan = pd.read_csv(url_jan)
@@ -26,151 +27,137 @@ def load_data():
 
 df_base = load_data()
 
-# --- LÓGICA DE FILTROS NA SIDEBAR ---
+# --- SIDEBAR ---
 st.sidebar.header("Filtros de Visão")
-
-# 1. Filtro de Mês (Sempre ativo)
 lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].dropna().unique().tolist())
 mes_sel = st.sidebar.selectbox("Selecione o Mês", lista_meses)
+opcoes_digitador = ["Todos"] + sorted(df_base['Digitado por'].dropna().unique().tolist())
+dig_sel = st.sidebar.selectbox("Selecione o Digitador", opcoes_digitador)
 
-# Dataframe filtrado apenas pelo mês para base de cálculo do Top 10 e Percentuais
-df_mes = df_base.copy()
-if mes_sel != "Todos":
-    df_mes = df_mes[df_mes['Filtro_Mes'] == mes_sel]
+df = df_base.copy()
+if mes_sel != "Todos": df = df[df['Filtro_Mes'] == mes_sel]
+if dig_sel != "Todos": df = df[df['Digitado por'] == dig_sel]
 
-# 2. Cálculo do Top 10 Digitadores (Baseado em Contratos Pagos 'DISBURSED')
-top_10_df = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(10).index.tolist()
+# --- LÓGICA DO FUNIL COM NOMENCLATURA OFICIAL ---
 
-st.sidebar.divider()
-
-# 3. Filtros Excludentes (Bloqueio Mútuo)
-if 'filtro_ativo' not in st.session_state:
-    st.session_state.filtro_ativo = None
-
-def clear_filter(name):
-    st.session_state.filtro_ativo = name
-
-# Filtro A: Selecione o Digitador (Único)
-dis_a = st.session_state.filtro_ativo == "top10"
-dig_sel = st.sidebar.selectbox(
-    "Selecione o Digitador", 
-    ["Todos"] + sorted(df_base['Digitado por'].dropna().unique().tolist()),
-    disabled=dis_a,
-    on_change=clear_filter, args=("unico",) if not dis_a else None,
-    key="select_unico"
-)
-if dig_sel != "Todos": st.session_state.filtro_ativo = "unico"
-
-# Filtro B: Top 10 (Múltiplo)
-dis_b = st.session_state.filtro_ativo == "unico" and dig_sel != "Todos"
-top10_sel = st.sidebar.multiselect(
-    "Digitadores Top 10 (Pagos)", 
-    top_10_df,
-    disabled=dis_b,
-    on_change=clear_filter, args=("top10",) if not dis_b else None,
-    key="select_top10"
-)
-if top10_sel: st.session_state.filtro_ativo = "top10"
-
-# Botão para resetar bloqueio
-if st.sidebar.button("Limpar Bloqueio de Filtros"):
-    st.session_state.filtro_ativo = None
-    st.rerun()
-
-# --- APLICAÇÃO FINAL DO FILTRO ---
-df_final = df_mes.copy()
-selecao_ativa = []
-
-if top10_sel:
-    df_final = df_final[df_final['Digitado por'].isin(top10_sel)]
-    selecao_ativa = top10_sel
-elif dig_sel != "Todos":
-    df_final = df_final[df_final['Digitado por'] == dig_sel]
-    selecao_ativa = [dig_sel]
-
-# --- LÓGICA DE CÁLCULO (Com Representatividade %) ---
-def get_metrics(df_set, df_reference):
-    total = len(df_set)
-    total_ref = len(df_reference)
-    percent = (total / total_ref * 100) if total_ref > 0 else 0
-    return total, percent
-
-# Cálculos do Funil (Usando df_final para o selecionado e df_mes para o total do mês)
 # 1. Novos Leads
-novos_leads, perc_leads = get_metrics(df_final, df_mes)
-df_nao_eng_f = df_final[df_final['status_da_proposta'].isin(['CREATED', 'TOKEN_SENT'])]
-df_nao_eng_m = df_mes[df_mes['status_da_proposta'].isin(['CREATED', 'TOKEN_SENT'])]
+novos_leads = len(df)
+# Sub: Leads Não Engajados
+map_nao_engajados = {
+    'CREATED': 'Proposta Iniciada',
+    'TOKEN_SENT': 'Token Enviado'
+}
+df_nao_engajados = df[df['status_da_proposta'].isin(map_nao_engajados.keys())]
+total_nao_engajados = len(df_nao_engajados)
 
-# 2. Token Aprovado
-leads_token_f = novos_leads - len(df_nao_eng_f)
-leads_token_m = len(df_mes) - len(df_nao_eng_m)
-perc_token = (leads_token_f / leads_token_m * 100) if leads_token_m > 0 else 0
+# 2. Leads com Token Aprovado
+leads_token_aprovado = novos_leads - total_nao_engajados
+# Sub: Propostas Rejeitadas Pré Motor de Crédito
+map_pre_motor = {
+    'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
+    'CPF_EMPLOYER': 'Dataprev - Negado - Não É CLT',
+    'SEM_DADOS_DATAPREV': 'Dataprev - Negado - Não É CLT',
+    'NOT_AUTHORIZED_DATAPREV': 'Dataprev - Negado - Não É Elegível',
+    'FAILED_DATAPREV': 'Dataprev - DataPrev Fora',
+    'CREDIT_ENGINE_ERROR': 'Bull - Erro no Motor Bull'
+}
+df_pre_motor = df[df['status_da_analise'].isin(map_pre_motor.keys())]
+total_pre_motor = len(df_pre_motor)
 
-# 3. Sujeito a Motor
-pre_codes = ['NO_AVAILABLE_MARGIN', 'CPF_EMPLOYER', 'SEM_DADOS_DATAPREV', 'NOT_AUTHORIZED_DATAPREV', 'FAILED_DATAPREV', 'CREDIT_ENGINE_ERROR']
-df_pre_f = df_final[df_final['status_da_analise'].isin(pre_codes)]
-df_pre_m = df_mes[df_mes['status_da_analise'].isin(pre_codes)]
-motor_f = leads_token_f - len(df_pre_f)
-motor_m = leads_token_m - len(df_pre_m)
-perc_motor = (motor_f / motor_m * 100) if motor_m > 0 else 0
+# 3. Leads Sujeito a Motor de Crédito
+leads_sujeito_motor = leads_token_aprovado - total_pre_motor
+# Sub: Propostas Rejeitadas No Motor De Crédito
+map_motor = {
+    'Quantidade de Funcionarios': 'Porte Empresa - CNPJ',
+    'Negar = Quantidade de Funcionarios entre 1 e 50': 'Porte Empresa - CNPJ',
+    'Porte do empregador': 'Porte Empresa - CNPJ',
+    'Negar = Tempo Fundacao da Empresa menor que 12 meses': 'Tempo Fundação - CNPJ',
+    'Tempo Fundacao da Empresa': 'Tempo Fundação - CNPJ',
+    'FGTS Irregular': 'FGTS CNPJ Irregular - CNPJ',
+    'Valor margem rejeitado': 'Margem Mínima - PF',
+    'Limite inferior ao piso mínimo': 'Valor Min de Margem - PF (dupla checagem)',
+    'Faixa de Renda': 'Faixa de Renda - PF',
+    'Faixa de Renda < 1 Salario Minimo': 'Faixa de Renda - PF',
+    'Possui Alertas': 'Alertas - PF',
+    'Tempo de Emprego': 'Tempo de Emprego Atual - PF',
+    'Tempo de Emprego Menor que 3 meses': 'Tempo de Emprego Atual - PF',
+    'Tempo do contrato do primeiro emprego < 12 meses': 'Tempo de Carteira Assinada - PF',
+    'CPF Nao Esta Regular na Receita Federal': 'CPF Irregular - PF',
+    'Esta sob sancao': 'Sob Sanção - PF',
+    'Nacionalidade diferente de brasileiro': 'Não Brasileiro - PF',
+    'Faixa etaria': 'Faixa Etária - PF',
+    'Faixa etaria Ate 17 anos OU Acima de 60 anos': 'Faixa Etária - PF',
+    'Pessoa Exposta Politicamente': 'PEP - PF',
+    'Cliente nao encontrado na base Quod Consulta PF': 'CPF ñ Encontrado Quod - PF'
+}
+df_no_motor = df[df['motivo_da_decisao'].isin(map_motor.keys())]
+total_no_motor = len(df_no_motor)
 
-# (Continua para as demais categorias seguindo a mesma lógica de df_final vs df_mes...)
-# ... Por brevidade, os expanders abaixo aplicarão a lógica completa ...
+# 4. Leads Com Propostas Disponíveis
+propostas_disponiveis = leads_sujeito_motor - total_no_motor
+# Sub: Propostas Que Não Avançaram para Contrato
+map_nao_avancaram = {
+    'CREDIT_CHECK_COMPLETED': 'Proposta não Aceita',
+    'PRE_ACCEPTED': 'Proposta Ajustada',
+    'CONTRACT_GENERATION_FAILED': 'Erro no Contrato'
+}
+df_nao_avancaram = df[df['status_da_proposta'].isin(map_nao_avancaram.keys())]
+total_nao_avancaram = len(df_nao_avancaram)
+
+# 5. Leads com Contrato Gerado
+contrato_gerado = propostas_disponiveis - total_nao_avancaram
+# Sub: Contratos Não Validados
+map_nao_validados = {
+    'SIGNATURE_FAILED': 'Contrato Recusado no AntiFraude',
+    'CANCELED': 'Cancelado pelo Tomador Pré Desembolso',
+    'EXPIRED': 'Contrato Expirado',
+    'ANALYSIS_REPROVED': 'Analise Mesa Reprovada',
+    'ERROR': 'Falha na averbação',
+    'CANCELLED_BY_USER': 'Cancelado pelo Tomador Pós Desembolso'
+}
+df_nao_validados = df[df['status_da_proposta'].isin(map_nao_validados.keys())]
+total_nao_validados = len(df_nao_validados)
+
+# 6. Contratos Pagos
+contratos_pagos = len(df[df['status_da_proposta'] == 'DISBURSED'])
 
 # --- DISPLAY 50/50 ---
-st.title("📊 Dashboard Analítico Topa+")
+st.title("📊 Dashboard Analítico Funil Topa+")
 st.divider()
 
 col_funil, col_detalhe = st.columns([1, 1])
 
 with col_funil:
-    st.subheader("🎯 Funil Selecionado")
-    # Nota: Aqui os valores mostrados são apenas do(s) digitador(es) selecionado(s)
-    # Para simplificar, calculamos os totais finais para o gráfico
-    val_pagos_f = len(df_final[df_final['status_da_proposta'] == 'DISBURSED'])
-    
+    st.subheader("🎯 Funil de Conversão")
     fig = go.Figure(go.Funnel(
-        y = ["Novos Leads", "Token Aprovado", "Sujeito a Motor", "Pagos"],
-        x = [novos_leads, leads_token_f, motor_f, val_pagos_f],
-        textinfo = "value+percent initial"
+        y = ["Novos Leads", "Token Aprovado", "Sujeito a Motor", "Propostas Disp.", "Contrato Gerado", "Pagos"],
+        x = [novos_leads, leads_token_aprovado, leads_sujeito_motor, propostas_disponiveis, contrato_gerado, contratos_pagos],
+        textinfo = "value+percent initial",
+        marker = {"color": ["#1f4e78", "#2e75b6", "#5b9bd5", "#9bc2e6", "#ddebf7", "#548235"]}
     ))
     st.plotly_chart(fig, use_container_width=True)
 
 with col_detalhe:
-    st.subheader("📂 Detalhamento e Representatividade (%)")
-    st.caption("O percentual indica quanto a seleção representa do total do mês.")
+    st.subheader("🎯 Funil de Categorias")
 
-    def render_block_perc(titulo, total_sel, total_mes_ref, df_sub_f, df_sub_m, mapping, col_ref):
-        perc_cat = (total_sel / total_mes_ref * 100) if total_mes_ref > 0 else 0
-        with st.expander(f"📌 {titulo}: {total_sel} ({perc_cat:.1f}%)"):
-            if not df_sub_f.empty:
-                # Contagem do selecionado
-                res_f = df_sub_f[col_ref].value_counts().reset_index()
-                res_f.columns = ['Status', 'Qtd_Sel']
-                # Contagem do total do mês para o %
-                res_m = df_sub_m[col_ref].value_counts().reset_index()
-                res_m.columns = ['Status', 'Qtd_Total']
-                
-                final = pd.merge(res_f, res_m, on='Status')
-                final['Descrição'] = final['Status'].map(mapping)
-                final['% do Mês'] = (final['Qtd_Sel'] / final['Qtd_Total'] * 100).map("{:.1f}%".format)
-                
-                st.table(final[['Descrição', 'Qtd_Sel', '% do Mês']])
+    def render_block(titulo, total_cat, df_sub, mapping, col_ref):
+        with st.expander(f"📌 {titulo}: {total_cat}"):
+            if not df_sub.empty:
+                res = df_sub[col_ref].value_counts().reset_index()
+                res.columns = ['Status', 'Qtd']
+                res['Descrição Apresentada'] = res['Status'].map(mapping)
+                final = res.groupby('Descrição Apresentada')['Qtd'].sum().reset_index()
+                st.table(final)
+                st.warning(f"**Total: {final['Qtd'].sum()}**")
             else:
-                st.info("Sem registros para a seleção.")
+                st.info("Sem registros nesta subcategoria.")
 
-    # Exemplo de Blocos com a nova lógica de %
-    render_block_perc("Novos Leads", novos_leads, len(df_mes), 
-                     df_nao_eng_f, df_nao_eng_m, 
-                     {'CREATED': 'Proposta Iniciada', 'TOKEN_SENT': 'Token Enviado'}, 'status_da_proposta')
+    render_block("Novos Leads", novos_leads, df_nao_engajados, map_nao_engajados, 'status_da_proposta')
+    render_block("Leads com Token Aprovado", leads_token_aprovado, df_pre_motor, map_pre_motor, 'status_da_analise')
+    render_block("Leads Sujeito a Motor de Crédito", leads_sujeito_motor, df_no_motor, map_motor, 'motivo_da_decisao')
+    render_block("Leads Com Propostas Disponíveis", propostas_disponiveis, df_nao_avancaram, map_nao_avancaram, 'status_da_proposta')
+    render_block("Leads com Contrato Gerado", contrato_gerado, df_nao_validados, map_nao_validados, 'status_da_proposta')
     
-    render_block_perc("Leads com Token Aprovado", leads_token_f, leads_token_m,
-                     df_pre_f, df_pre_m,
-                     {'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem', 'CPF_EMPLOYER': 'Dataprev - Negado - Não É CLT'}, 'status_da_analise')
-    
-    # Bloco de Pagos
-    total_pagos_m = len(df_mes[df_mes['status_da_proposta'] == 'DISBURSED'])
-    perc_pagos = (val_pagos_f / total_pagos_m * 100) if total_pagos_m > 0 else 0
-    with st.expander(f"🏆 Contratos Pagos: {val_pagos_f} ({perc_pagos:.1f}%)"):
-        st.success(f"Representatividade de Pagos: {perc_pagos:.1f}% do total de {total_pagos_m} contratos.")
+    with st.expander(f"✅ Contratos Pagos: {contratos_pagos}"):
+        st.success(f"Contrato Pago: {contratos_pagos}")
 
