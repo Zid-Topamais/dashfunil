@@ -176,17 +176,25 @@ with c1:
     st.plotly_chart(fig, use_container_width=True)
 
 with c2:
-    def block_ui(label, val, p, df_s, df_m, mapping, col):
-        with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
-            if not df_s.empty:
-                counts_s = df_s[df_s[col].isin(mapping.keys())][col].value_counts().reset_index()
-                counts_m = df_m[df_m[col].isin(mapping.keys())][col].value_counts().reset_index()
-                counts_s.columns = ['ID', 'Qtd_Sel']
-                counts_m.columns = ['ID', 'Total_Mes']
-                res = pd.merge(counts_s, counts_m, on='ID')
-                res['Descrição'] = res['ID'].map(mapping)
-                res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).map("{:.1f}%".format)
-                st.table(res[['Descrição', 'Qtd_Sel', '%']])
+   def block_ui(label, val, p, df_s, df_m, mapping, col):
+    with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
+        if not df_s.empty:
+            # 1. Mapeia os status originais para as descrições finais
+            df_s_mapped = df_s[df_s[col].isin(mapping.keys())].copy()
+            df_s_mapped['Descrição'] = df_s_mapped[col].map(mapping)
+            
+            df_m_mapped = df_m[df_m[col].isin(mapping.keys())].copy()
+            df_m_mapped['Descrição'] = df_m_mapped[col].map(mapping)
+
+            # 2. Agrupa por 'Descrição' para somar os status duplicados (como o CLT)
+            counts_s = df_s_mapped.groupby('Descrição').size().reset_index(name='Qtd_Sel')
+            counts_m = df_m_mapped.groupby('Descrição').size().reset_index(name='Total_Mes')
+            
+            # 3. Faz o merge final para exibição
+            res = pd.merge(counts_s, counts_m, on='Descrição')
+            res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).map("{:.1f}%".format)
+            
+            st.table(res[['Descrição', 'Qtd_Sel', '%']])
 
     block_ui("Novos Leads", n_sel, p_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
     block_ui("Leads com Token Aprovado", tok_s, p_tok, df_sel, df_mes, map_pre_motor, 'status_da_analise')
