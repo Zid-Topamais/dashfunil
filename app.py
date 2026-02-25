@@ -26,6 +26,10 @@ def load_data():
 
 df_base = load_data()
 
+# Adicione isso para testar
+if not df_base.empty:
+    st.write("Contagem por mês encontrada:", df_base['Filtro_Mes'].value_counts())
+
 # --- LÓGICA DE FILTROS ---
 
 def reset_filtros():
