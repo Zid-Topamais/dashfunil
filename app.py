@@ -138,7 +138,7 @@ with col_funil:
     st.plotly_chart(fig, use_container_width=True)
 
 with col_detalhe:
-    st.subheader("📂 Categorias e Subcategorias")
+    st.subheader("🎯 Funil de Categorias")
 
     def render_block(titulo, total_cat, df_sub, mapping, col_ref):
         with st.expander(f"📌 {titulo}: {total_cat}"):
