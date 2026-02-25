@@ -35,27 +35,53 @@ df_base = load_data()
 
 # --- FILTROS LATERAIS ---
 def reset_filtros():
-    for k in ['digitador_unico', 'top15_multi']:
+    # Adicionamos as novas chaves aqui para limpar tudo
+    for k in ['digitador_unico', 'top15_multi', 'parceiro_sel', 'equipe_sel']:
         if k in st.session_state: del st.session_state[k]
     st.rerun()
 
 st.sidebar.header("Configurações do Funil")
+
+# 1. Filtro de Mês
 mes_sel = st.sidebar.selectbox("Mês de Referência", ["Todos"] + sorted(df_base['Filtro_Mes'].unique().tolist()))
 df_mes = df_base if mes_sel == "Todos" else df_base[df_base['Filtro_Mes'] == mes_sel]
 
-top_15_pagos = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(15).index.tolist()
+# 2. Filtro de Parceiro (Coluna R)
+lista_parceiros = ["Todos"] + sorted(df_mes['Parceiro'].dropna().unique().tolist()) # Assumindo que o nome da coluna R seja 'Parceiro'
+parceiro_sel = st.sidebar.selectbox("Filtrar Parceiro", lista_parceiros, key="parceiro_sel")
 
-dig_sel = st.sidebar.selectbox("Filtrar Digitador", ["Todos"] + sorted(df_base['Digitado por'].unique().tolist()), 
+df_parceiro = df_mes.copy()
+if parceiro_sel != "Todos":
+    df_parceiro = df_parceiro[df_parceiro['Parceiro'] == parceiro_sel]
+
+# 3. Filtro de Equipe (Coluna S) - Dinâmico conforme o Parceiro
+lista_equipes = ["Todos"] + sorted(df_parceiro['Equipe'].dropna().unique().tolist()) # Assumindo que o nome da coluna S seja 'Equipe'
+equipe_sel = st.sidebar.selectbox("Filtrar Equipe", lista_equipes, key="equipe_sel")
+
+df_equipe = df_parceiro.copy()
+if equipe_sel != "Todos":
+    df_equipe = df_equipe[df_equipe['Equipe'] == equipe_sel]
+
+# 4. Top 15 Pagos (Agora filtrado por Parceiro e Equipe também)
+top_15_pagos = df_equipe[df_equipe['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(15).index.tolist()
+
+# 5. Filtros de Digitador
+dig_sel = st.sidebar.selectbox("Filtrar Digitador", ["Todos"] + sorted(df_equipe['Digitado por'].unique().tolist()), 
                                key="digitador_unico", disabled=bool(st.session_state.get('top15_multi')))
+
 top_sel = st.sidebar.multiselect("Filtrar Top 15 Pagos", top_15_pagos, 
                                  key="top15_multi", disabled=bool(st.session_state.get('digitador_unico') and st.session_state.digitador_unico != "Todos"))
 
 if st.sidebar.button("Limpar Filtros"): reset_filtros()
 
-# Aplicar filtros à seleção
-df_sel = df_mes.copy()
-if top_sel: df_sel = df_sel[df_sel['Digitado por'].isin(top_sel)]
-elif dig_sel != "Todos": df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
+# --- APLICAÇÃO FINAL DOS FILTROS ---
+# Aqui garantimos que o df_sel respeite toda a hierarquia
+df_sel = df_equipe.copy()
+
+if top_sel: 
+    df_sel = df_sel[df_sel['Digitado por'].isin(top_sel)]
+elif dig_sel != "Todos": 
+    df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
 
 # --- DICIONÁRIOS DE MAPEAMENTO (DRILL-DOWN) ---
 
