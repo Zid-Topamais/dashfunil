@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -176,33 +177,17 @@ with c1:
     st.plotly_chart(fig, use_container_width=True)
 
 with c2:
-   def block_ui(label, val, p, df_s, df_m, mapping, col):
-    with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
-        # Filtra apenas linhas que possuem os status que mapeamos
-        df_sub_s = df_s[df_s[col].isin(mapping.keys())].copy()
-        df_sub_m = df_m[df_m[col].isin(mapping.keys())].copy()
-        
-        if not df_sub_s.empty:
-            # Atribui a descrição amigável
-            df_sub_s['Descrição'] = df_sub_s[col].map(mapping)
-            df_sub_m['Descrição'] = df_sub_m[col].map(mapping)
-            
-            # AGRUPAMENTO: Aqui é onde somamos os duplicados (ex: os dois tipos de CLT)
-            counts_s = df_sub_s.groupby('Descrição').size().reset_index(name='Qtd_Sel')
-            counts_m = df_sub_m.groupby('Descrição').size().reset_index(name='Total_Mes')
-            
-            # Une os dados da seleção com o total do mês para calcular o %
-            res = pd.merge(counts_s, counts_m, on='Descrição', how='left')
-            
-            # Calcula o percentual de representatividade
-            res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).fillna(0).map("{:.1f}%".format)
-            
-            # Ordena do maior para o menor para facilitar a leitura
-            res = res.sort_values(by='Qtd_Sel', ascending=False)
-            
-            st.table(res[['Descrição', 'Qtd_Sel', '%']])
-        else:
-            st.info("Sem registros detalhados para esta categoria na seleção atual.")
+    def block_ui(label, val, p, df_s, df_m, mapping, col):
+        with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
+            if not df_s.empty:
+                counts_s = df_s[df_s[col].isin(mapping.keys())][col].value_counts().reset_index()
+                counts_m = df_m[df_m[col].isin(mapping.keys())][col].value_counts().reset_index()
+                counts_s.columns = ['ID', 'Qtd_Sel']
+                counts_m.columns = ['ID', 'Total_Mes']
+                res = pd.merge(counts_s, counts_m, on='ID')
+                res['Descrição'] = res['ID'].map(mapping)
+                res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).map("{:.1f}%".format)
+                st.table(res[['Descrição', 'Qtd_Sel', '%']])
 
     block_ui("Novos Leads", n_sel, p_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
     block_ui("Leads com Token Aprovado", tok_s, p_tok, df_sel, df_mes, map_pre_motor, 'status_da_analise')
