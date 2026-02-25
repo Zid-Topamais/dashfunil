@@ -2,10 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# 1. Configuração inicial da página
+# 1. Configuração inicial
 st.set_page_config(page_title="Dashboard Funil Topa+", layout="wide")
 
-# 2. Função de Carga Robusta (Ajustada para suas abas e colunas)
 @st.cache_data(ttl=600)
 def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
@@ -13,66 +12,62 @@ def load_data():
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
     
     try:
-        # Carregando e unificando as bases
         df_dez = pd.read_csv(url_dez)
         df_jan = pd.read_csv(url_jan)
         df = pd.concat([df_dez, df_jan], ignore_index=True)
         df = df.dropna(how='all')
-
-        # Tratamento da Data de Criação (Coluna D) como guia principal
         df['Data de Criação'] = pd.to_datetime(df['Data de Criação'], errors='coerce', dayfirst=True)
-        
-        # Mapeamento de meses para o filtro
         meses_pt = {1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio", 6: "Junho", 
                     7: "Julho", 8: "Agosto", 9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"}
         df['Filtro_Mes'] = df['Data de Criação'].dt.month.map(meses_pt)
-        
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar dados da planilha: {e}")
+        st.error(f"Erro ao carregar dados: {e}")
         return pd.DataFrame()
 
-# Inicialização da base
 df_base = load_data()
 
-# Se a base estiver vazia, interrompe a execução com aviso
-if df_base.empty:
-    st.warning("⚠️ Verifique se a planilha está compartilhada como 'Qualquer pessoa com o link' e se os nomes das abas estão corretos.")
-    st.stop()
-
-# --- SIDEBAR (FILTROS) ---
+# --- SIDEBAR ---
 st.sidebar.header("Filtros de Visão")
 lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].dropna().unique().tolist())
 mes_sel = st.sidebar.selectbox("Selecione o Mês", lista_meses)
-
 opcoes_digitador = ["Todos"] + sorted(df_base['Digitado por'].dropna().unique().tolist())
 dig_sel = st.sidebar.selectbox("Selecione o Digitador", opcoes_digitador)
 
-# Aplicação dos Filtros no DataFrame
 df = df_base.copy()
-if mes_sel != "Todos": 
-    df = df[df['Filtro_Mes'] == mes_sel]
-if dig_sel != "Todos": 
-    df = df[df['Digitado por'] == dig_sel]
+if mes_sel != "Todos": df = df[df['Filtro_Mes'] == mes_sel]
+if dig_sel != "Todos": df = df[df['Digitado por'] == dig_sel]
 
-# --- LÓGICA DE CÁLCULO DO FUNIL ---
+# --- LÓGICA DO FUNIL COM NOMENCLATURA OFICIAL ---
 
-# 1. Novos Leads (Total da base filtrada)
+# 1. Novos Leads
 novos_leads = len(df)
-df_nao_engajados = df[df['status_da_proposta'].isin(['CREATED', 'TOKEN_SENT'])]
+# Sub: Leads Não Engajados
+map_nao_engajados = {
+    'CREATED': 'Proposta Iniciada',
+    'TOKEN_SENT': 'Token Enviado'
+}
+df_nao_engajados = df[df['status_da_proposta'].isin(map_nao_engajados.keys())]
 total_nao_engajados = len(df_nao_engajados)
 
-# 2. Leads com Token Aprovado (Anterior - Não Engajados)
+# 2. Leads com Token Aprovado
 leads_token_aprovado = novos_leads - total_nao_engajados
-pre_motor_status = ['NO_AVAILABLE_MARGIN', 'CPF_EMPLOYER', 'SEM_DADOS_DATAPREV', 'NOT_AUTHORIZED_DATAPREV', 'FAILED_DATAPREV', 'CREDIT_ENGINE_ERROR']
-df_pre_motor = df[df['status_da_analise'].isin(pre_motor_status)]
+# Sub: Propostas Rejeitadas Pré Motor de Crédito
+map_pre_motor = {
+    'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
+    'CPF_EMPLOYER': 'Dataprev - Negado - Não É CLT',
+    'SEM_DADOS_DATAPREV': 'Dataprev - Negado - Não É CLT',
+    'NOT_AUTHORIZED_DATAPREV': 'Dataprev - Negado - Não É Elegível',
+    'FAILED_DATAPREV': 'Dataprev - DataPrev Fora',
+    'CREDIT_ENGINE_ERROR': 'Bull - Erro no Motor Bull'
+}
+df_pre_motor = df[df['status_da_analise'].isin(map_pre_motor.keys())]
 total_pre_motor = len(df_pre_motor)
 
-# 3. Leads Sujeito a Motor (Anterior - Pré Motor)
+# 3. Leads Sujeito a Motor de Crédito
 leads_sujeito_motor = leads_token_aprovado - total_pre_motor
-
-# Mapeamento do Motor (Coluna AD)
-motor_map = {
+# Sub: Propostas Rejeitadas No Motor De Crédito
+map_motor = {
     'Quantidade de Funcionarios': 'Porte Empresa - CNPJ',
     'Negar = Quantidade de Funcionarios entre 1 e 50': 'Porte Empresa - CNPJ',
     'Porte do empregador': 'Porte Empresa - CNPJ',
@@ -80,7 +75,7 @@ motor_map = {
     'Tempo Fundacao da Empresa': 'Tempo Fundação - CNPJ',
     'FGTS Irregular': 'FGTS CNPJ Irregular - CNPJ',
     'Valor margem rejeitado': 'Margem Mínima - PF',
-    'Limite inferior ao piso mínimo': 'Valor Min de Margem - PF',
+    'Limite inferior ao piso mínimo': 'Valor Min de Margem - PF (dupla checagem)',
     'Faixa de Renda': 'Faixa de Renda - PF',
     'Faixa de Renda < 1 Salario Minimo': 'Faixa de Renda - PF',
     'Possui Alertas': 'Alertas - PF',
@@ -95,95 +90,73 @@ motor_map = {
     'Pessoa Exposta Politicamente': 'PEP - PF',
     'Cliente nao encontrado na base Quod Consulta PF': 'CPF ñ Encontrado Quod - PF'
 }
-df_no_motor = df[df['motivo_da_decisao'].isin(motor_map.keys())]
+df_no_motor = df[df['motivo_da_decisao'].isin(map_motor.keys())]
 total_no_motor = len(df_no_motor)
 
-# 4. Propostas Disponíveis (Anterior - No Motor)
+# 4. Leads Com Propostas Disponíveis
 propostas_disponiveis = leads_sujeito_motor - total_no_motor
-df_nao_avancaram = df[df['status_da_proposta'].isin(['CREDIT_CHECK_COMPLETED', 'PRE_ACCEPTED', 'CONTRACT_GENERATION_FAILED'])]
+# Sub: Propostas Que Não Avançaram para Contrato
+map_nao_avancaram = {
+    'CREDIT_CHECK_COMPLETED': 'Proposta não Aceita',
+    'PRE_ACCEPTED': 'Proposta Ajustada',
+    'CONTRACT_GENERATION_FAILED': 'Erro no Contrato'
+}
+df_nao_avancaram = df[df['status_da_proposta'].isin(map_nao_avancaram.keys())]
 total_nao_avancaram = len(df_nao_avancaram)
 
-# 5. Contrato Gerado (Anterior - Não Avançaram)
+# 5. Leads com Contrato Gerado
 contrato_gerado = propostas_disponiveis - total_nao_avancaram
-nao_validados_status = ['SIGNATURE_FAILED', 'CANCELED', 'EXPIRED', 'ANALYSIS_REPROVED', 'ERROR', 'CANCELLED_BY_USER']
-df_nao_validados = df[df['status_da_proposta'].isin(nao_validados_status)]
+# Sub: Contratos Não Validados
+map_nao_validados = {
+    'SIGNATURE_FAILED': 'Contrato Recusado no AntiFraude',
+    'CANCELED': 'Cancelado pelo Tomador Pré Desembolso',
+    'EXPIRED': 'Contrato Expirado',
+    'ANALYSIS_REPROVED': 'Analise Mesa Reprovada',
+    'ERROR': 'Falha na averbação',
+    'CANCELLED_BY_USER': 'Cancelado pelo Tomador Pós Desembolso'
+}
+df_nao_validados = df[df['status_da_proposta'].isin(map_nao_validados.keys())]
 total_nao_validados = len(df_nao_validados)
 
 # 6. Contratos Pagos
 contratos_pagos = len(df[df['status_da_proposta'] == 'DISBURSED'])
 
-# --- LAYOUT DASHBOARD (DIVISÃO 50/50) ---
+# --- DISPLAY 50/50 ---
 st.title("📊 Dashboard Analítico Funil Topa+")
-st.markdown(f"**Visão Selecionada:** {mes_sel} | **Digitador:** {dig_sel}")
 st.divider()
 
-col_esq, col_dir = st.columns([1, 1])
+col_funil, col_detalhe = st.columns([1, 1])
 
-with col_esq:
+with col_funil:
     st.subheader("🎯 Funil de Conversão")
     fig = go.Figure(go.Funnel(
         y = ["Novos Leads", "Token Aprovado", "Sujeito a Motor", "Propostas Disp.", "Contrato Gerado", "Pagos"],
         x = [novos_leads, leads_token_aprovado, leads_sujeito_motor, propostas_disponiveis, contrato_gerado, contratos_pagos],
         textinfo = "value+percent initial",
-        marker = {"color": ["#1f77b4", "#2ca02c", "#ff7f0e", "#d62728", "#9467bd", "#8c564b"]}
+        marker = {"color": ["#1f4e78", "#2e75b6", "#5b9bd5", "#9bc2e6", "#ddebf7", "#548235"]}
     ))
-    fig.update_layout(height=600, margin=dict(l=20, r=20, t=20, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-with col_dir:
-    st.subheader("📂 Detalhamento e Recusas")
+with col_detalhe:
+    st.subheader("📂 Categorias e Subcategorias")
+
+    def render_block(titulo, total_cat, df_sub, mapping, col_ref):
+        with st.expander(f"📌 {titulo}: {total_cat}"):
+            if not df_sub.empty:
+                res = df_sub[col_ref].value_counts().reset_index()
+                res.columns = ['Status', 'Qtd']
+                res['Descrição Apresentada'] = res['Status'].map(mapping)
+                final = res.groupby('Descrição Apresentada')['Qtd'].sum().reset_index()
+                st.table(final)
+                st.warning(f"**Total: {final['Qtd'].sum()}**")
+            else:
+                st.info("Sem registros nesta subcategoria.")
+
+    render_block("Novos Leads", novos_leads, df_nao_engajados, map_nao_engajados, 'status_da_proposta')
+    render_block("Leads com Token Aprovado", leads_token_aprovado, df_pre_motor, map_pre_motor, 'status_da_analise')
+    render_block("Leads Sujeito a Motor de Crédito", leads_sujeito_motor, df_no_motor, map_motor, 'motivo_da_decisao')
+    render_block("Leads Com Propostas Disponíveis", propostas_disponiveis, df_nao_avancaram, map_nao_avancaram, 'status_da_proposta')
+    render_block("Leads com Contrato Gerado", contrato_gerado, df_nao_validados, map_nao_validados, 'status_da_proposta')
     
-    # Função para renderizar as tabelas dentro dos expanders
-    def render_sub_table(df_sub, mapping, col_ref):
-        if not df_sub.empty:
-            res = df_sub[col_ref].value_counts().reset_index()
-            res.columns = ['Status Técnico', 'Qtd']
-            if mapping:
-                res['Descrição Amigável'] = res['Status Técnico'].map(mapping)
-                # Reorganiza para mostrar descrição primeiro se existir
-                res = res[['Descrição Amigável', 'Qtd']]
-            st.dataframe(res, hide_index=True, use_container_width=True)
-            st.warning(f"**Soma da Subcategoria: {res['Qtd'].sum()}**")
-        else:
-            st.info("Nenhum dado encontrado para esta etapa.")
-
-    # Drill Down das Categorias
-    with st.expander(f"🔵 1. Novos Leads: {novos_leads}"):
-        st.write("**Leads Não Engajados (Perda)**")
-        render_sub_table(df_nao_engajados, {'CREATED':'Proposta Iniciada', 'TOKEN_SENT':'Token Enviado'}, 'status_da_proposta')
-
-    with st.expander(f"🟢 2. Leads com Token Aprovado: {leads_token_aprovado}"):
-        st.write("**Rejeitadas Pré Motor (Perda)**")
-        pre_motor_labels = {
-            'NO_AVAILABLE_MARGIN': 'Dataprev - Sem Margem',
-            'CPF_EMPLOYER': 'Dataprev - Não É CLT',
-            'SEM_DADOS_DATAPREV': 'Dataprev - Sem Dados',
-            'NOT_AUTHORIZED_DATAPREV': 'Dataprev - Não Elegível',
-            'FAILED_DATAPREV': 'Dataprev Fora',
-            'CREDIT_ENGINE_ERROR': 'Erro Motor Bull'
-        }
-        render_sub_table(df_pre_motor, pre_motor_labels, 'status_da_analise')
-
-    with st.expander(f"🟠 3. Leads Sujeito a Motor: {leads_sujeito_motor}"):
-        st.write("**Rejeitadas No Motor (Perda)**")
-        render_table_motor = df_no_motor['motivo_da_decisao'].value_counts().reset_index()
-        render_table_motor.columns = ['Motivo Detalhado', 'Qtd']
-        st.dataframe(render_table_motor, hide_index=True, use_container_width=True)
-        st.warning(f"**Total Rejeição Motor: {total_no_motor}**")
-
-    with st.expander(f"🟡 4. Propostas Disponíveis: {propostas_disponiveis}"):
-        st.write("**Não Avançaram para Contrato (Perda)**")
-        nao_avanc_labels = {'CREDIT_CHECK_COMPLETED':'Proposta não Aceita', 'PRE_ACCEPTED':'Proposta Ajustada', 'CONTRACT_GENERATION_FAILED':'Erro no Contrato'}
-        render_sub_table(df_nao_avancaram, nao_avanc_labels, 'status_da_proposta')
-
-    with st.expander(f"🟣 5. Contrato Gerado: {contrato_gerado}"):
-        st.write("**Contratos Não Validados (Perda)**")
-        nao_valid_labels = {
-            'SIGNATURE_FAILED': 'Falha AntiFraude', 'CANCELED': 'Cancelado Tomador (Pré)', 
-            'EXPIRED': 'Contrato Expirado', 'ANALYSIS_REPROVED': 'Mesa Reprovada', 
-            'ERROR': 'Falha Averbação', 'CANCELLED_BY_USER': 'Cancelado Tomador (Pós)'
-        }
-        render_sub_table(df_nao_validados, nao_valid_labels, 'status_da_proposta')
-
-    with st.expander(f"🏆 6. Contratos Pagos: {contratos_pagos}"):
-        st.success(f"Finalizados com Sucesso: {contratos_pagos}")
+    with st.expander(f"✅ Contratos Pagos: {contratos_pagos}"):
+        st.success(f"Contrato Pago: {contratos_pagos}")
