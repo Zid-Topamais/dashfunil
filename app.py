@@ -28,9 +28,8 @@ df_base = load_data()
 
 # --- LÓGICA DE FILTROS ---
 
-# Função de reset corrigida (deletando as chaves em vez de setar valores)
 def reset_filtros():
-    for key in ['digitador_unico', 'top10_multi', 'bloqueio']:
+    for key in ['digitador_unico', 'top15_multi', 'bloqueio']:
         if key in st.session_state:
             del st.session_state[key]
     st.rerun()
@@ -45,20 +44,19 @@ df_mes = df_base.copy()
 if mes_sel != "Todos":
     df_mes = df_mes[df_mes['Filtro_Mes'] == mes_sel]
 
-# 2. Top 10 Dinâmico
-top_10_list = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(10).index.tolist()
+# 2. Top 15 Dinâmico (Ajustado para 15)
+top_15_list = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(15).index.tolist()
 
 st.sidebar.divider()
 
 # --- Lógica de Bloqueio ---
 disable_unico = False
-disable_top10 = False
+disable_top15 = False
 
-# Checagem de estado para habilitar/desabilitar
-if st.session_state.get('top10_multi'):
+if st.session_state.get('top15_multi'):
     disable_unico = True
 elif st.session_state.get('digitador_unico') and st.session_state.digitador_unico != "Todos":
-    disable_top10 = True
+    disable_top15 = True
 
 # Filtro Único
 dig_sel = st.sidebar.selectbox(
@@ -68,12 +66,12 @@ dig_sel = st.sidebar.selectbox(
     disabled=disable_unico
 )
 
-# Filtro Top 10
-top10_sel = st.sidebar.multiselect(
-    "Digitadores Top 10 (Pagos)", 
-    top_10_list,
-    key="top10_multi",
-    disabled=disable_top10
+# Filtro Top 15 (Ajustado para 15)
+top15_sel = st.sidebar.multiselect(
+    "Digitadores Top 15 (Pagos)", 
+    top_15_list,
+    key="top15_multi",
+    disabled=disable_top15
 )
 
 if st.sidebar.button("Limpar Filtros e Bloqueios"):
@@ -81,12 +79,12 @@ if st.sidebar.button("Limpar Filtros e Bloqueios"):
 
 # --- APLICAÇÃO DOS DADOS ---
 df_sel = df_mes.copy()
-if top10_sel:
-    df_sel = df_sel[df_sel['Digitado por'].isin(top10_sel)]
+if top15_sel:
+    df_sel = df_sel[df_sel['Digitado por'].isin(top15_sel)]
 elif dig_sel != "Todos":
     df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
 
-# --- MAPEAMENTOS E CÁLCULOS (IGUAIS AO ANTERIOR) ---
+# --- MAPEAMENTOS ---
 map_nao_engajados = {'CREATED': 'Proposta Iniciada', 'TOKEN_SENT': 'Token Enviado'}
 map_pre_motor = {
     'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
