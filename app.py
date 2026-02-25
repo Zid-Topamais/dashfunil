@@ -26,20 +26,18 @@ def load_data():
 
 df_base = load_data()
 
-# --- LÓGICA DE BLOQUEIO DO SIDEBAR ---
+# --- LÓGICA DE FILTROS ---
 
-# Inicializa o estado se não existir
-if 'bloqueio' not in st.session_state:
-    st.session_state.bloqueio = None
-
+# Função de reset corrigida (deletando as chaves em vez de setar valores)
 def reset_filtros():
-    st.session_state.bloqueio = None
-    st.session_state.digitador_unico = "Todos"
-    st.session_state.top10_multi = []
+    for key in ['digitador_unico', 'top10_multi', 'bloqueio']:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
 
 st.sidebar.header("Filtros de Visão")
 
-# 1. Filtro de Mês (Base para cálculos de %)
+# 1. Filtro de Mês
 lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].dropna().unique().tolist())
 mes_sel = st.sidebar.selectbox("Selecione o Mês", lista_meses)
 
@@ -47,25 +45,20 @@ df_mes = df_base.copy()
 if mes_sel != "Todos":
     df_mes = df_mes[df_mes['Filtro_Mes'] == mes_sel]
 
-# 2. Digitadores Top 10 (Dinâmico pelo Mês)
+# 2. Top 10 Dinâmico
 top_10_list = df_mes[df_mes['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(10).index.tolist()
 
 st.sidebar.divider()
 
-# --- Componentes com Lógica de Bloqueio ---
-
-# Determina quem bloqueia quem
+# --- Lógica de Bloqueio ---
 disable_unico = False
 disable_top10 = False
 
+# Checagem de estado para habilitar/desabilitar
 if st.session_state.get('top10_multi'):
     disable_unico = True
-    st.session_state.bloqueio = "top10"
 elif st.session_state.get('digitador_unico') and st.session_state.digitador_unico != "Todos":
     disable_top10 = True
-    st.session_state.bloqueio = "unico"
-else:
-    st.session_state.bloqueio = None
 
 # Filtro Único
 dig_sel = st.sidebar.selectbox(
@@ -85,7 +78,6 @@ top10_sel = st.sidebar.multiselect(
 
 if st.sidebar.button("Limpar Filtros e Bloqueios"):
     reset_filtros()
-    st.rerun()
 
 # --- APLICAÇÃO DOS DADOS ---
 df_sel = df_mes.copy()
@@ -94,7 +86,7 @@ if top10_sel:
 elif dig_sel != "Todos":
     df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
 
-# --- DICIONÁRIOS DE MAPEAMENTO ---
+# --- MAPEAMENTOS E CÁLCULOS (IGUAIS AO ANTERIOR) ---
 map_nao_engajados = {'CREATED': 'Proposta Iniciada', 'TOKEN_SENT': 'Token Enviado'}
 map_pre_motor = {
     'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
@@ -137,49 +129,34 @@ map_nao_validados = {
     'CANCELLED_BY_USER': 'Cancelado pelo Tomador Pós Desembolso'
 }
 
-# --- CÁLCULOS DO FUNIL ---
+# --- CÁLCULOS ---
 def calc_metrics(df_s, df_m, keys, col):
     v_sel = len(df_s[df_s[col].isin(keys)])
     v_mes = len(df_m[df_m[col].isin(keys)])
     p = (v_sel / v_mes * 100) if v_mes > 0 else 0
     return v_sel, v_mes, p
 
-# 1. Novos Leads
 n_sel, n_mes = len(df_sel), len(df_mes)
 p_leads = (n_sel / n_mes * 100) if n_mes > 0 else 0
 
-# Sub: Engajamento
 v_eng_s, v_eng_m, _ = calc_metrics(df_sel, df_mes, map_nao_engajados.keys(), 'status_da_proposta')
-
-# 2. Token Aprovado
 tok_s, tok_m = n_sel - v_eng_s, n_mes - v_eng_m
 p_tok = (tok_s / tok_m * 100) if tok_m > 0 else 0
 
-# Sub: Pré Motor
 v_pre_s, v_pre_m, _ = calc_metrics(df_sel, df_mes, map_pre_motor.keys(), 'status_da_analise')
-
-# 3. Sujeito a Motor
 mot_s, mot_m = tok_s - v_pre_s, tok_m - v_pre_m
 p_mot_cat = (mot_s / mot_m * 100) if mot_m > 0 else 0
 
-# Sub: No Motor
 v_mot_s, v_mot_m, _ = calc_metrics(df_sel, df_mes, map_motor.keys(), 'motivo_da_decisao')
-
-# 4. Propostas Disponíveis
 dis_s, dis_m = mot_s - v_mot_s, mot_m - v_mot_m
 p_dis = (dis_s / dis_m * 100) if dis_m > 0 else 0
 
-# Sub: Não Avançaram
 v_nav_s, v_nav_m, _ = calc_metrics(df_sel, df_mes, map_nao_avancaram.keys(), 'status_da_proposta')
-
-# 5. Contrato Gerado
 ger_s, ger_m = dis_s - v_nav_s, dis_m - v_nav_m
 p_ger = (ger_s / ger_m * 100) if ger_m > 0 else 0
 
-# Sub: Não Validados
 v_nva_s, v_nva_m, _ = calc_metrics(df_sel, df_mes, map_nao_validados.keys(), 'status_da_proposta')
 
-# 6. Pagos
 pag_s = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
 pag_m = len(df_mes[df_mes['status_da_proposta'] == 'DISBURSED'])
 p_pag = (pag_s / pag_m * 100) if pag_m > 0 else 0
@@ -197,7 +174,7 @@ with c1:
     st.plotly_chart(fig, use_container_width=True)
 
 with c2:
-    def block(label, val, p, df_s, df_m, mapping, col):
+    def block_ui(label, val, p, df_s, df_m, mapping, col):
         with st.expander(f"📌 {label}: {val} ({p:.1f}%)"):
             if not df_s.empty:
                 counts_s = df_s[df_s[col].isin(mapping.keys())][col].value_counts().reset_index()
@@ -209,10 +186,10 @@ with c2:
                 res['%'] = (res['Qtd_Sel'] / res['Total_Mes'] * 100).map("{:.1f}%".format)
                 st.table(res[['Descrição', 'Qtd_Sel', '%']])
 
-    block("Novos Leads", n_sel, p_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
-    block("Leads com Token Aprovado", tok_s, p_tok, df_sel, df_mes, map_pre_motor, 'status_da_analise')
-    block("Leads Sujeito a Motor", mot_s, p_mot_cat, df_sel, df_mes, map_motor, 'motivo_da_decisao')
-    block("Propostas Disponíveis", dis_s, p_dis, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
-    block("Contrato Gerado", ger_s, p_ger, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
+    block_ui("Novos Leads", n_sel, p_leads, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
+    block_ui("Leads com Token Aprovado", tok_s, p_tok, df_sel, df_mes, map_pre_motor, 'status_da_analise')
+    block_ui("Leads Sujeito a Motor", mot_s, p_mot_cat, df_sel, df_mes, map_motor, 'motivo_da_decisao')
+    block_ui("Propostas Disponíveis", dis_s, p_dis, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
+    block_ui("Contrato Gerado", ger_s, p_ger, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
     with st.expander(f"✅ Contratos Pagos: {pag_s} ({p_pag:.1f}%)"):
         st.success(f"Representatividade: {p_pag:.1f}% ( {pag_s} de {pag_m} totais no mês)")
