@@ -236,7 +236,7 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 
 col1, col2 = st.columns([1.2, 1])
 
-Python
+
 with col1:
     # Rótulos que combinam Quantidade e Valor R$
     labels_funil = [
