@@ -9,6 +9,7 @@ def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
     url_dez = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Dez"
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
+    
     try:
         df_dez = pd.read_csv(url_dez)
         df_dez['Origem'] = 'Dezembro'
@@ -22,41 +23,38 @@ def load_data():
                     7:"Julho", 8:"Agosto", 9:"Setembro", 10:"Outubro", 11:"Novembro", 12:"Dezembro"}
         df['Filtro_Mes'] = df['Data de Criação'].dt.month.map(meses_pt).fillna(df['Origem'])
         
-        # Limpeza de strings para evitar erros de contagem
+        # Limpeza de strings
         for c in ['status_da_proposta', 'status_da_analise', 'motivo_da_decisao']:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
-        # Coluna K
-        # Coluna K
+        # Coluna K - Limpeza de Moeda Blindada
         col_valor = df.columns[10] 
         
         def limpa_moeda(valor):
-            # Transforma em texto, tira o R$ e remove espaços em branco
             v = str(valor).upper().replace('R$', '').strip()
-            
-            # Se não tem vírgula, mas tem ponto (já está no padrão americano/banco de dados)
+            if not v or v == 'NAN':
+                return 0.0
+            # Se já estiver no padrão decimal americano (sem vírgula e com ponto)
             if ',' not in v and '.' in v:
                 try:
                     return float(v)
                 except:
-                    pass
-            
-            # Se estiver no padrão BR (ex: 1.234,56)
-            v = v.replace('.', '')   # Remove o ponto de milhar
-            v = v.replace(',', '.')  # Troca a vírgula decimal por ponto
-            
+                    return 0.0
+            # Padrão Brasileiro: remove ponto de milhar e troca vírgula por ponto
+            v = v.replace('.', '').replace(',', '.')
             try:
                 return float(v)
             except:
-                return 0.0 # Se vier vazio ou erro, zera para não quebrar a conta
+                return 0.0
                 
-        # Aplica a limpeza linha a linha na Coluna K
         df[col_valor] = df[col_valor].apply(limpa_moeda)
         
         return df
 
-df_base = load_data()
+    except Exception as e:
+        st.error(f"Erro ao carregar base: {e}")
+        return pd.DataFrame()
 
 # --- FILTROS LATERAIS (SIDEBAR) ---
 
