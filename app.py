@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -9,44 +10,28 @@ def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
     url_dez = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Dez"
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
-    
     try:
-        # Carregamento dos dados
         df_dez = pd.read_csv(url_dez)
         df_dez['Origem'] = 'Dezembro'
         df_jan = pd.read_csv(url_jan)
         df_jan['Origem'] = 'Janeiro'
-        
-        # Concatenação e limpeza de linhas vazias
         df = pd.concat([df_dez, df_jan], ignore_index=True).dropna(how='all')
         
-        # Tratamento de Datas e Criação do Filtro de Mês
+        # Datas e Meses
         df['Data de Criação'] = pd.to_datetime(df['Data de Criação'], errors='coerce', dayfirst=True)
         meses_pt = {1:"Janeiro", 2:"Fevereiro", 3:"Março", 4:"Abril", 5:"Maio", 6:"Junho", 
                     7:"Julho", 8:"Agosto", 9:"Setembro", 10:"Outubro", 11:"Novembro", 12:"Dezembro"}
         df['Filtro_Mes'] = df['Data de Criação'].dt.month.map(meses_pt).fillna(df['Origem'])
         
-        # Limpeza de strings para colunas de status
+        # Limpeza de strings para evitar erros de contagem
         for c in ['status_da_proposta', 'status_da_analise', 'motivo_da_decisao']:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
-        # --- TRATAMENTO DA COLUNA K (VALOR LIBERADO) ---
-        # Identifica a coluna pelo índice 10 conforme sua estrutura
-        col_valor = df.columns[10] 
-        
-        # Passo 1: Converter para string e remover espaços
-        df[col_valor] = df[col_valor].astype(str).str.strip()
-        
-        # Passo 2: Limpeza de formatação brasileira (Ex: "1.500,50" -> "1500.50")
-        # Removemos o ponto (.) que separa milhares e trocamos a vírgula (,) pelo ponto decimal (.)
-        df[col_valor] = df[col_valor].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-        
-        # Passo 3: Conversão final para numérico (float)
-        df[col_valor] = pd.to_numeric(df[col_valor], errors='coerce').fillna(0)
+        col_valor = df.columns[10] # Coluna K
+        df[col_valor] = pd.to_numeric(df[col_valor].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
         
         return df
-
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         return pd.DataFrame()
@@ -212,25 +197,39 @@ sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
 v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
 prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
 
-# Filtro para soma: Leads que passaram pelo engajamento, pré-motor e motor
-df_prop_disp = df_sel[
-    (~df_sel['status_da_proposta'].isin(map_nao_engajados.keys())) & 
-    (~df_sel['status_da_analise'].isin(map_pre_motor.keys())) & 
-    (~df_sel['motivo_da_decisao'].isin(map_motor.keys()))
-]
+# Filtrando o DataFrame para somar valores de quem chegou nesta etapa
+df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
+                      ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
+                      ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
 val_prop_disp = float(df_prop_disp[col_valor].sum())
 
 # 5. Leads com Contrato Gerado + VALOR
-# Filtra quem estava disponível e não caiu nos erros de geração de contrato
 df_contrato_ger = df_prop_disp[~df_prop_disp['status_da_proposta'].isin(map_nao_avancaram.keys())]
 contrato_ger_sel = len(df_contrato_ger)
 val_contrato_ger = float(df_contrato_ger[col_valor].sum())
 
 # 6. Contratos Pagos + VALOR
-# Filtro direto pelo status final de desembolso
-df_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED'].copy()
+df_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED']
 contratos_pagos_sel = len(df_pagos)
 val_pagos = float(df_pagos[col_valor].sum())
+
+# --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
+
+def drill_down_table(title, total_cat, df_s, df_m, mapping, col):
+    with st.expander(f"📌 {title}: {total_cat}"):
+        sub_s = df_s[df_s[col].isin(mapping.keys())].copy()
+        sub_m = df_m[df_m[col].isin(mapping.keys())].copy()
+        if not sub_s.empty:
+            sub_s['Descrição'] = sub_s[col].map(mapping)
+            sub_m['Descrição'] = sub_m[col].map(mapping)
+            # Consolidação (Agrupa nomes iguais e soma)
+            res_s = sub_s.groupby('Descrição').size().reset_index(name='Qtd Sel')
+            res_m = sub_m.groupby('Descrição').size().reset_index(name='Total Mês')
+            res = pd.merge(res_s, res_m, on='Descrição')
+            res['%'] = (res['Qtd Sel'] / res['Total Mês'] * 100).map("{:.1f}%".format)
+            st.table(res.sort_values(by='Qtd Sel', ascending=False))
+        else:
+            st.write("Sem subcategorias registradas.")
 
 # --- RENDERIZAÇÃO ---
 
@@ -238,9 +237,9 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 
 col1, col2 = st.columns([1.2, 1])
 
+
 with col1:
-    # Rótulos combinando Quantidade, Valor R$ e %
-    # O <br> faz a quebra de linha para o valor ficar embaixo da quantidade
+    # Rótulos que combinam Quantidade e Valor R$
     labels_funil = [
         f"{n_leads_sel}",
         f"{token_aprov_sel}",
@@ -254,27 +253,17 @@ with col1:
         y=["Novos Leads", "Token Aprovado", "Sujeito Motor", "Prop. Disponíveis", "Contrato Gerado", "Pagos"],
         x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
         text=labels_funil,
-        textinfo="text+percent initial",
-        textposition="inside",     # Força o texto para dentro da barra
-        insidetextanchor="middle",  # Centraliza o texto verticalmente na barra
-        insidetextfont=dict(color="white", size=14),
-        marker=dict(color="royalblue"),
-        connector=dict(line=dict(color="silver", width=1))
+        textinfo="text+percent initial"
     ))
     
-    fig.update_layout(
-        margin=dict(l=10, r=10, t=10, b=10),
-        height=650, # Altura ajustada para acomodar os valores internos
-        font=dict(size=12)
-    )
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    # Mantém os seus drill_down_tables originais aqui...
     drill_down_table("Novos Leads", n_leads_sel, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
     drill_down_table("Leads com Token Aprovado", token_aprov_sel, df_sel, df_mes, map_pre_motor, 'status_da_analise')
     drill_down_table("Leads Sujeito a Motor de Crédito", sujeito_motor_sel, df_sel, df_mes, map_motor, 'motivo_da_decisao')
     drill_down_table("Leads Com Propostas Disponíveis", prop_disp_sel, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
     drill_down_table("Leads com Contrato Gerado", contrato_ger_sel, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
     
-    st.info(f"💰 **Contratos Pagos: {contratos_pagos_sel} | {format_br(val_pagos)}**")
+    st.info(f"💰 **Contratos Pagos: {contratos_pagos_sel}**")
