@@ -113,13 +113,13 @@ if st.sidebar.button("🧹 Limpar Todos os Filtros"):
     reset_filtros()
 
 # --- APLICAÇÃO FINAL DA SELEÇÃO ---
-# Esta variável df_sel é a que você usará para todos os cálculos do Funil (Lado Esquerdo)
 df_sel = df_equipe.copy()
 
-if top_sel: 
-    df_sel = df_sel[df_sel['Digitado por'].isin(top_sel)]
-elif dig_sel != "Todos": 
-    df_sel = df_sel[df_sel['Digitado por'] == dig_sel]
+# Usamos .get() para evitar erros caso a chave ainda não exista no session_state
+if st.session_state.get('top15_multi'): 
+    df_sel = df_sel[df_sel['Digitado por'].isin(st.session_state['top15_multi'])]
+elif st.session_state.get('digitador_unico') and st.session_state['digitador_unico'] != "Todos": 
+    df_sel = df_sel[df_sel['Digitado por'] == st.session_state['digitador_unico']]
 
 # O df_mes continua sendo usado como comparativo (Lado Direito) para as porcentagens totais
 
