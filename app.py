@@ -178,7 +178,7 @@ def format_br(valor):
     """Formata número para o padrão brasileiro R$ 1.234,56"""
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# Coluna K - Valor Liberado (Índice 10 conforme sua imagem do load_data)
+# Coluna K - Valor Liberado (Índice 10)
 col_valor = df_base.columns[10]
 
 # 1. Novos Leads
@@ -196,6 +196,7 @@ sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
 v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
 prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
 
+# Filtrando o DataFrame para somar valores de quem chegou nesta etapa
 df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
                       ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
                       ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
@@ -209,7 +210,6 @@ val_contrato_ger = float(df_contrato_ger[col_valor].sum())
 # 6. Contratos Pagos + VALOR
 df_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED']
 contratos_pagos_sel = len(df_pagos)
-# Correção do erro de parênteses aqui:
 val_pagos = float(df_pagos[col_valor].sum())
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
@@ -238,6 +238,7 @@ col1, col2 = st.columns([1.2, 1])
 
 Python
 with col1:
+    # Rótulos que combinam Quantidade e Valor R$
     labels_funil = [
         f"{n_leads_sel}",
         f"{token_aprov_sel}",
