@@ -236,8 +236,8 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 
 col1, col2 = st.columns([1.2, 1])
 
+Python
 with col1:
-    # Lista de textos que aparecerão dentro de cada barra
     labels_funil = [
         f"{n_leads_sel}",
         f"{token_aprov_sel}",
@@ -251,15 +251,10 @@ with col1:
         y=["Novos Leads", "Token Aprovado", "Sujeito Motor", "Prop. Disponíveis", "Contrato Gerado", "Pagos"],
         x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
         text=labels_funil,
-        textinfo="text+percent initial", # Mostra o texto personalizado + a porcentagem
-        insidetextfont=dict(size=14), # Aumenta um pouco a fonte interna para facilitar leitura
-        marker=dict(color="royalblue")
+        textinfo="text+percent initial"
     ))
     
-    fig.update_layout(
-        margin=dict(l=10, r=10, t=10, b=10),
-        yaxis=dict(tickfont=dict(size=12))
-    )
+    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
