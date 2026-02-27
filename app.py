@@ -169,6 +169,9 @@ map_nao_validados = {
 def get_count(df, mapping, col):
     return len(df[df[col].isin(mapping.keys())])
 
+# Identificando a Coluna K pelo índice 10 (Valor Liberado)
+col_valor = df_base.columns[10]
+
 # 1. Novos Leads
 n_leads_sel = len(df_sel)
 n_leads_mes = len(df_mes)
@@ -187,20 +190,24 @@ sujeito_motor_mes = token_aprov_mes - v_rej_pre_mes
 
 # 4. Leads com Propostas Disponíveis
 v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
-v_rej_motor_mes = get_count(df_mes, map_motor, 'motivo_da_decisao')
 prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
-prop_disp_mes = sujeito_motor_mes - v_rej_motor_mes
+# CÁLCULO VALOR R$
+df_prop_disp_sel = df_sel[~df_sel['status_da_proposta'].isin(list(map_nao_engajados.keys())) & 
+                          ~df_sel['status_da_analise'].isin(list(map_pre_motor.keys())) & 
+                          ~df_sel['motivo_da_decisao'].isin(list(map_motor.keys()))]
+valor_prop_disp_sel = df_prop_disp_sel[col_valor].sum()
 
 # 5. Leads com Contrato Gerado
 v_nao_avanca_sel = get_count(df_sel, map_nao_avancaram, 'status_da_proposta')
-v_nao_avanca_mes = get_count(df_mes, map_nao_avancaram, 'status_da_proposta')
 contrato_ger_sel = prop_disp_sel - v_nao_avanca_sel
-contrato_ger_mes = prop_disp_mes - v_nao_avanca_mes
+# CÁLCULO VALOR R$
+df_contrato_ger_sel = df_prop_disp_sel[~df_prop_disp_sel['status_da_proposta'].isin(list(map_nao_avancaram.keys()))]
+valor_contrato_ger_sel = df_contrato_ger_sel[col_valor].sum()
 
 # 6. Contratos Pagos
-v_nao_valida_sel = get_count(df_sel, map_nao_validados, 'status_da_proposta')
 contratos_pagos_sel = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
-contratos_pagos_mes = len(df_mes[df_mes['status_da_proposta'] == 'DISBURSED'])
+# CÁLCULO VALOR R$
+valor_pagos_sel = df_sel[df_sel['status_da_proposta'] == 'DISBURSED'][col_valor].sum()
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
 
