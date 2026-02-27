@@ -259,11 +259,18 @@ with col1:
         y=["Novos Leads", "Token Aprovado", "Sujeito Motor", "Prop. Disponíveis", "Contrato Gerado", "Pagos"],
         x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
         text=labels_funil,
-        textinfo="text+percent initial"
+        textinfo="text+percent initial",
+        textposition="inside",      # Força o texto para DENTRO da barra
+        insidetextanchor="middle",   # Centraliza o texto verticalmente
+        insidetextfont=dict(color="white", size=14),
+        marker=dict(color="royalblue")
     ))
     
-    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(
+        margin=dict(l=10, r=10, t=10, b=10),
+        height=600,
+        showlegend=False
+    )
 
 with col2:
     drill_down_table("Novos Leads", n_leads_sel, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
