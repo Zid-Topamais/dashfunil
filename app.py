@@ -26,6 +26,10 @@ def load_data():
         for c in ['status_da_proposta', 'status_da_analise', 'motivo_da_decisao']:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
+        
+        col_valor = df.columns[10] # Coluna K
+        df[col_valor] = pd.to_numeric(df[col_valor].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+        
         return df
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
@@ -166,43 +170,30 @@ map_nao_validados = {
 
 # --- LÓGICA DE CÁLCULO DO FUNIL ---
 
-def get_count(df, mapping, col):
-    return len(df[df[col].isin(mapping.keys())])
+def format_br(valor):
+    """Formata número para o padrão brasileiro R$ 1.234,56"""
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# Coluna K - Valor Liberado (Índice 10)
-col_valor = df_base.columns[10]
+col_valor = df_base.columns[10] # Coluna K
 
-# 1. Novos Leads
+# Cálculos de quantidade (conforme seu código original)
 n_leads_sel = len(df_sel)
-n_leads_mes = len(df_mes)
+token_aprov_sel = n_leads_sel - get_count(df_sel, map_nao_engajados, 'status_da_proposta')
+sujeito_motor_sel = token_aprov_sel - get_count(df_sel, map_pre_motor, 'status_da_analise')
+prop_disp_sel = sujeito_motor_sel - get_count(df_sel, map_motor, 'motivo_da_decisao')
 
-# 2. Leads com Token Aprovado
-v_nao_eng_sel = get_count(df_sel, map_nao_engajados, 'status_da_proposta')
-token_aprov_sel = n_leads_sel - v_nao_eng_sel
-
-# 3. Leads Sujeito a Motor
-v_rej_pre_sel = get_count(df_sel, map_pre_motor, 'status_da_analise')
-sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
-
-# 4. Leads com Propostas Disponíveis + VALOR
-v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
-prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
-# Filtro para soma: Leads que não caíram no motor nem nas etapas anteriores
+# Cálculo dos valores financeiros (Somas)
 df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
                       ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
                       ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
-val_prop_disp = df_prop_disp[col_valor].sum()
+val_prop_disp = float(df_prop_disp[col_valor].sum())
 
-# 5. Leads com Contrato Gerado + VALOR
-v_nao_avanca_sel = get_count(df_sel, map_nao_avancaram, 'status_da_proposta')
-contrato_ger_sel = prop_disp_sel - v_nao_avanca_sel
-# Filtro para soma: Propostas disponíveis que não falharam na geração do contrato
 df_contrato_ger = df_prop_disp[~df_prop_disp['status_da_proposta'].isin(map_nao_avancaram.keys())]
-val_contrato_ger = df_contrato_ger[col_valor].sum()
+contrato_ger_sel = len(df_contrato_ger) # Ajuste para bater com a lógica de exclusão
+val_contrato_ger = float(df_contrato_ger[col_valor].sum())
 
-# 6. Contratos Pagos + VALOR
+val_pagos = float(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'][col_valor].sum())
 contratos_pagos_sel = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
-val_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED'][col_valor].sum()
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
 
@@ -229,29 +220,28 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 col1, col2 = st.columns([1.2, 1])
 
 with col1:
-    # Criando os rótulos personalizados para as etapas que pediram valor
-    # Formato: Quantidade <br> R$ Valor
+    # Lista de textos que aparecerão dentro de cada barra
     labels_funil = [
         f"{n_leads_sel}",
         f"{token_aprov_sel}",
         f"{sujeito_motor_sel}",
-        f"{prop_disp_sel}<br>R$ {val_prop_disp:,.2f}",
-        f"{contrato_ger_sel}<br>R$ {val_contrato_ger:,.2f}",
-        f"{contratos_pagos_sel}<br>R$ {val_pagos:,.2f}"
+        f"{prop_disp_sel}<br>{format_br(val_prop_disp)}",
+        f"{contrato_ger_sel}<br>{format_br(val_contrato_ger)}",
+        f"{contratos_pagos_sel}<br>{format_br(val_pagos)}"
     ]
 
     fig = go.Figure(go.Funnel(
         y=["Novos Leads", "Token Aprovado", "Sujeito Motor", "Prop. Disponíveis", "Contrato Gerado", "Pagos"],
-        x=[n_leads_sel, token_aprov_sel, sujeto_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
+        x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
         text=labels_funil,
-        textinfo="text+percent initial", # Exibe o nosso texto personalizado + % do início
-        connector={'line': {'color': "royalblue", 'width': 2}}
+        textinfo="text+percent initial", # Mostra o texto personalizado + a porcentagem
+        insidetextfont=dict(size=14), # Aumenta um pouco a fonte interna para facilitar leitura
+        marker=dict(color="royalblue")
     ))
     
     fig.update_layout(
         margin=dict(l=10, r=10, t=10, b=10),
-        funnelmode="stack",
-        showlegend=False
+        yaxis=dict(tickfont=dict(size=12))
     )
     st.plotly_chart(fig, use_container_width=True)
 
