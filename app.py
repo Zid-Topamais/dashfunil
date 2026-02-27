@@ -27,8 +27,8 @@ def load_data():
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
-        # Localize onde está a definição da col_valor no seu load_data
-        col_valor = df.columns[10] # Coluna K
+        # Coluna K
+        col_valor = df.columns[10] 
         # Limpeza robusta: remove pontos de milhar e converte vírgula em ponto decimal
         df[col_valor] = (
             df[col_valor].astype(str)
@@ -64,7 +64,6 @@ mes_sel = st.sidebar.selectbox("Mês de Referência", lista_meses, key="mes_sel"
 df_mes = df_base if mes_sel == "Todos" else df_base[df_base['Filtro_Mes'] == mes_sel]
 
 # Mapeamento dinâmico das colunas R (17) e S (18)
-# Usamos o índice para garantir que funcione mesmo se o nome do cabeçalho mudar
 nome_col_r = df_base.columns[17] # Empresa
 nome_col_s = df_base.columns[18] # Squad/Equipe
 
@@ -77,7 +76,6 @@ if empresa_sel != "Todos":
     df_empresa = df_empresa[df_empresa[nome_col_r] == empresa_sel]
 
 # 3. Filtro de Equipe (Coluna S - Squad)
-# Nota: Só mostra as equipes da empresa selecionada
 lista_equipes = ["Todos"] + sorted(df_empresa[nome_col_s].dropna().unique().tolist())
 equipe_sel = st.sidebar.selectbox("Filtrar Equipe", lista_equipes, key="squad_sel")
 
@@ -91,7 +89,6 @@ top_15_pagos = df_equipe[df_equipe['status_da_proposta'] == 'DISBURSED']['Digita
 st.sidebar.divider()
 
 # 5. Filtros de Digitador
-# Regra: Se usar o Top 15, bloqueia o Unitário. Se usar o Unitário, bloqueia o Top 15.
 disable_unico = bool(st.session_state.get('top15_multi'))
 disable_top15 = bool(st.session_state.get('digitador_unico') and st.session_state.digitador_unico != "Todos")
 
@@ -115,13 +112,10 @@ if st.sidebar.button("🧹 Limpar Todos os Filtros"):
 # --- APLICAÇÃO FINAL DA SELEÇÃO ---
 df_sel = df_equipe.copy()
 
-# Usamos .get() para evitar erros caso a chave ainda não exista no session_state
 if st.session_state.get('top15_multi'): 
     df_sel = df_sel[df_sel['Digitado por'].isin(st.session_state['top15_multi'])]
 elif st.session_state.get('digitador_unico') and st.session_state['digitador_unico'] != "Todos": 
     df_sel = df_sel[df_sel['Digitado por'] == st.session_state['digitador_unico']]
-
-# O df_mes continua sendo usado como comparativo (Lado Direito) para as porcentagens totais
 
 # --- DICIONÁRIOS DE MAPEAMENTO (DRILL-DOWN) ---
 
@@ -243,7 +237,6 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 
 col1, col2 = st.columns([1.2, 1])
 
-
 with col1:
     # Rótulos que combinam Quantidade e Valor R$
     labels_funil = [
@@ -271,6 +264,9 @@ with col1:
         height=600,
         showlegend=False
     )
+    
+    # ESTA É A LINHA QUE FALTAVA NO SEU CÓDIGO E FAZ O GRÁFICO APARECER!
+    st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     drill_down_table("Novos Leads", n_leads_sel, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
