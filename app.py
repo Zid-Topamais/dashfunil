@@ -246,7 +246,9 @@ with col2:
     drill_down_table("Novos Leads", n_leads_sel, df_sel, df_mes, map_nao_engajados, 'status_da_proposta')
     drill_down_table("Leads com Token Aprovado", token_aprov_sel, df_sel, df_mes, map_pre_motor, 'status_da_analise')
     drill_down_table("Leads Sujeito a Motor de Crédito", sujeito_motor_sel, df_sel, df_mes, map_motor, 'motivo_da_decisao')
-    drill_down_table("Leads Com Propostas Disponíveis", prop_disp_sel, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
-    drill_down_table("Leads com Contrato Gerado", contrato_ger_sel, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
     
-    st.info(f"💰 **Contratos Pagos: {contratos_pagos_sel}**")
+    # Exibição com Valores R$
+    drill_down_table(f"Leads Com Propostas Disponíveis (R$ {valor_prop_disp_sel:,.2f})", prop_disp_sel, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
+    drill_down_table(f"Leads com Contrato Gerado (R$ {valor_contrato_ger_sel:,.2f})", contrato_ger_sel, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
+    
+    st.success(f"💰 **Contratos Pagos: {contratos_pagos_sel} (R$ {valor_pagos_sel:,.2f})**")
