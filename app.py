@@ -27,8 +27,15 @@ def load_data():
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
+        # Localize onde está a definição da col_valor no seu load_data
         col_valor = df.columns[10] # Coluna K
-        df[col_valor] = pd.to_numeric(df[col_valor].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+        # Limpeza robusta: remove pontos de milhar e converte vírgula em ponto decimal
+        df[col_valor] = (
+            df[col_valor].astype(str)
+            .str.replace('.', '', regex=False)
+            .str.replace(',', '.', regex=False)
+        )
+        df[col_valor] = pd.to_numeric(df[col_valor], errors='coerce').fillna(0)
         
         return df
     except Exception as e:
