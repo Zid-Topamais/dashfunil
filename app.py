@@ -170,30 +170,47 @@ map_nao_validados = {
 
 # --- LÓGICA DE CÁLCULO DO FUNIL ---
 
+def get_count(df, mapping, col):
+    """Conta registros baseados nos mapeamentos de status"""
+    return len(df[df[col].isin(mapping.keys())])
+
 def format_br(valor):
     """Formata número para o padrão brasileiro R$ 1.234,56"""
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-col_valor = df_base.columns[10] # Coluna K
+# Coluna K - Valor Liberado (Índice 10)
+col_valor = df_base.columns[10]
 
-# Cálculos de quantidade (conforme seu código original)
+# 1. Novos Leads
 n_leads_sel = len(df_sel)
-token_aprov_sel = n_leads_sel - get_count(df_sel, map_nao_engajados, 'status_da_proposta')
-sujeito_motor_sel = token_aprov_sel - get_count(df_sel, map_pre_motor, 'status_da_analise')
-prop_disp_sel = sujeito_motor_sel - get_count(df_sel, map_motor, 'motivo_da_decisao')
 
-# Cálculo dos valores financeiros (Somas)
+# 2. Leads com Token Aprovado
+v_nao_eng_sel = get_count(df_sel, map_nao_engajados, 'status_da_proposta')
+token_aprov_sel = n_leads_sel - v_nao_eng_sel
+
+# 3. Leads Sujeito a Motor
+v_rej_pre_sel = get_count(df_sel, map_pre_motor, 'status_da_analise')
+sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
+
+# 4. Leads com Propostas Disponíveis + VALOR
+v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
+prop_disp_sel = sujeto_motor_sel - v_rej_motor_sel
+
+# Filtro para soma: Quem passou das etapas anteriores
 df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
                       ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
                       ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
 val_prop_disp = float(df_prop_disp[col_valor].sum())
 
+# 5. Leads com Contrato Gerado + VALOR
 df_contrato_ger = df_prop_disp[~df_prop_disp['status_da_proposta'].isin(map_nao_avancaram.keys())]
-contrato_ger_sel = len(df_contrato_ger) # Ajuste para bater com a lógica de exclusão
+contrato_ger_sel = len(df_contrato_ger)
 val_contrato_ger = float(df_contrato_ger[col_valor].sum())
 
-val_pagos = float(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'][col_valor].sum())
-contratos_pagos_sel = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
+# 6. Contratos Pagos + VALOR
+df_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED']
+contratos_pagos_sel = len(df_pagos)
+val_pagos = float(df_pag
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
 
