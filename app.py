@@ -9,7 +9,6 @@ def load_data():
     sheet_id = "1-ttYZTqw_8JhU3zA1JAKYaece_iJ-CBrdeoTzNKMZ3I"
     url_dez = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Dez"
     url_jan = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Dados_Jan"
-    
     try:
         df_dez = pd.read_csv(url_dez)
         df_dez['Origem'] = 'Dezembro'
@@ -28,33 +27,35 @@ def load_data():
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
-        # Coluna K - Limpeza de Moeda Blindada
+        # Coluna K - Limpeza de Moeda Blindada (Resolve valores zerados)
         col_valor = df.columns[10] 
-        
         def limpa_moeda(valor):
-            v = str(valor).upper().replace('R$', '').strip()
-            if not v or v == 'NAN':
-                return 0.0
-            # Se já estiver no padrão decimal americano (sem vírgula e com ponto)
+            v = str(valor).upper().replace('R$', '').replace(' ', '').strip()
+            if not v or v == 'NAN': return 0.0
             if ',' not in v and '.' in v:
-                try:
-                    return float(v)
-                except:
-                    return 0.0
-            # Padrão Brasileiro: remove ponto de milhar e troca vírgula por ponto
+                try: return float(v)
+                except: return 0.0
             v = v.replace('.', '').replace(',', '.')
-            try:
-                return float(v)
-            except:
-                return 0.0
-                
-        df[col_valor] = df[col_valor].apply(limpa_moeda)
+            try: return float(v)
+            except: return 0.0
         
+        df[col_valor] = df[col_valor].apply(limpa_moeda)
         return df
-
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         return pd.DataFrame()
+
+# --- ESTA LINHA É ESSENCIAL (Resolve o NameError) ---
+df_base = load_data()
+
+# --- FILTROS LATERAIS ---
+if not df_base.empty:
+    st.sidebar.header("🎯 Configurações do Funil")
+    lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].unique().tolist())
+    # O restante do seu código segue aqui...
+else:
+    st.error("Não foi possível carregar os dados. Verifique a conexão com a planilha.")
+    st.stop()
 
 # --- FILTROS LATERAIS (SIDEBAR) ---
 
