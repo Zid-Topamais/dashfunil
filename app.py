@@ -23,20 +23,25 @@ def load_data():
                     7:"Julho", 8:"Agosto", 9:"Setembro", 10:"Outubro", 11:"Novembro", 12:"Dezembro"}
         df['Filtro_Mes'] = df['Data de Criação'].dt.month.map(meses_pt).fillna(df['Origem'])
         
-        # Limpeza de strings para evitar erros de contagem
+        # Limpeza de strings
         for c in ['status_da_proposta', 'status_da_analise', 'motivo_da_decisao']:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
         
-        col_valor = df.columns[10] # Coluna K
-        df[col_valor] = pd.to_numeric(df[col_valor].astype(str).str.replace('.', '').str.replace(',', '.'), errors='coerce').fillna(0)
+        # --- CORREÇÃO DO VALOR (COLUNA K) ---
+        col_valor = df.columns[10] 
+        # Forçamos a remoção de pontos de milhar e a troca de vírgula por ponto
+        df[col_valor] = (
+            df[col_valor].astype(str)
+            .str.replace('.', '', regex=False)
+            .str.replace(',', '.', regex=False)
+        )
+        df[col_valor] = pd.to_numeric(df[col_valor], errors='coerce').fillna(0)
         
         return df
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         return pd.DataFrame()
-
-df_base = load_data()
 
 # --- FILTROS LATERAIS (SIDEBAR) ---
 
