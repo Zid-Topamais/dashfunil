@@ -28,19 +28,33 @@ def load_data():
                 df[c] = df[c].astype(str).str.strip()
         
         # Coluna K
+        # Coluna K
         col_valor = df.columns[10] 
-        # Limpeza robusta: remove pontos de milhar e converte vírgula em ponto decimal
-        df[col_valor] = (
-            df[col_valor].astype(str)
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
-        )
-        df[col_valor] = pd.to_numeric(df[col_valor], errors='coerce').fillna(0)
+        
+        def limpa_moeda(valor):
+            # Transforma em texto, tira o R$ e remove espaços em branco
+            v = str(valor).upper().replace('R$', '').strip()
+            
+            # Se não tem vírgula, mas tem ponto (já está no padrão americano/banco de dados)
+            if ',' not in v and '.' in v:
+                try:
+                    return float(v)
+                except:
+                    pass
+            
+            # Se estiver no padrão BR (ex: 1.234,56)
+            v = v.replace('.', '')   # Remove o ponto de milhar
+            v = v.replace(',', '.')  # Troca a vírgula decimal por ponto
+            
+            try:
+                return float(v)
+            except:
+                return 0.0 # Se vier vazio ou erro, zera para não quebrar a conta
+                
+        # Aplica a limpeza linha a linha na Coluna K
+        df[col_valor] = df[col_valor].apply(limpa_moeda)
         
         return df
-    except Exception as e:
-        st.error(f"Erro ao carregar base: {e}")
-        return pd.DataFrame()
 
 df_base = load_data()
 
