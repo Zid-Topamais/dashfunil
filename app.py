@@ -169,38 +169,40 @@ map_nao_validados = {
 def get_count(df, mapping, col):
     return len(df[df[col].isin(mapping.keys())])
 
+# Coluna K - Valor Liberado (Índice 10)
+col_valor = df_base.columns[10]
+
 # 1. Novos Leads
 n_leads_sel = len(df_sel)
 n_leads_mes = len(df_mes)
 
 # 2. Leads com Token Aprovado
 v_nao_eng_sel = get_count(df_sel, map_nao_engajados, 'status_da_proposta')
-v_nao_eng_mes = get_count(df_mes, map_nao_engajados, 'status_da_proposta')
 token_aprov_sel = n_leads_sel - v_nao_eng_sel
-token_aprov_mes = n_leads_mes - v_nao_eng_mes
 
 # 3. Leads Sujeito a Motor
 v_rej_pre_sel = get_count(df_sel, map_pre_motor, 'status_da_analise')
-v_rej_pre_mes = get_count(df_mes, map_pre_motor, 'status_da_analise')
 sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
-sujeito_motor_mes = token_aprov_mes - v_rej_pre_mes
 
-# 4. Leads com Propostas Disponíveis
+# 4. Leads com Propostas Disponíveis + VALOR
 v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
-v_rej_motor_mes = get_count(df_mes, map_motor, 'motivo_da_decisao')
 prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
-prop_disp_mes = sujeito_motor_mes - v_rej_motor_mes
+# Filtro para soma: Leads que não caíram no motor nem nas etapas anteriores
+df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
+                      ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
+                      ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
+val_prop_disp = df_prop_disp[col_valor].sum()
 
-# 5. Leads com Contrato Gerado
+# 5. Leads com Contrato Gerado + VALOR
 v_nao_avanca_sel = get_count(df_sel, map_nao_avancaram, 'status_da_proposta')
-v_nao_avanca_mes = get_count(df_mes, map_nao_avancaram, 'status_da_proposta')
 contrato_ger_sel = prop_disp_sel - v_nao_avanca_sel
-contrato_ger_mes = prop_disp_mes - v_nao_avanca_mes
+# Filtro para soma: Propostas disponíveis que não falharam na geração do contrato
+df_contrato_ger = df_prop_disp[~df_prop_disp['status_da_proposta'].isin(map_nao_avancaram.keys())]
+val_contrato_ger = df_contrato_ger[col_valor].sum()
 
-# 6. Contratos Pagos
-v_nao_valida_sel = get_count(df_sel, map_nao_validados, 'status_da_proposta')
+# 6. Contratos Pagos + VALOR
 contratos_pagos_sel = len(df_sel[df_sel['status_da_proposta'] == 'DISBURSED'])
-contratos_pagos_mes = len(df_mes[df_mes['status_da_proposta'] == 'DISBURSED'])
+val_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED'][col_valor].sum()
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
 
@@ -227,12 +229,30 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 col1, col2 = st.columns([1.2, 1])
 
 with col1:
+    # Criando os rótulos personalizados para as etapas que pediram valor
+    # Formato: Quantidade <br> R$ Valor
+    labels_funil = [
+        f"{n_leads_sel}",
+        f"{token_aprov_sel}",
+        f"{sujeito_motor_sel}",
+        f"{prop_disp_sel}<br>R$ {val_prop_disp:,.2f}",
+        f"{contrato_ger_sel}<br>R$ {val_contrato_ger:,.2f}",
+        f"{contratos_pagos_sel}<br>R$ {val_pagos:,.2f}"
+    ]
+
     fig = go.Figure(go.Funnel(
         y=["Novos Leads", "Token Aprovado", "Sujeito Motor", "Prop. Disponíveis", "Contrato Gerado", "Pagos"],
-        x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
-        textinfo="value+percent initial"
+        x=[n_leads_sel, token_aprov_sel, sujeto_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
+        text=labels_funil,
+        textinfo="text+percent initial", # Exibe o nosso texto personalizado + % do início
+        connector={'line': {'color': "royalblue", 'width': 2}}
     ))
-    fig.update_layout(margin=dict(l=10, r=10, t=10, b=10))
+    
+    fig.update_layout(
+        margin=dict(l=10, r=10, t=10, b=10),
+        funnelmode="stack",
+        showlegend=False
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
