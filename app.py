@@ -15,20 +15,23 @@ def load_data():
         df_jan = pd.read_csv(url_jan)
         df_jan['Origem'] = 'Janeiro'
         df = pd.concat([df_dez, df_jan], ignore_index=True).dropna(how='all')
-        
+
         # Datas e Meses
         df['Data de Criação'] = pd.to_datetime(df['Data de Criação'], errors='coerce', dayfirst=True)
-        meses_pt = {1:"Janeiro", 2:"Fevereiro", 3:"Março", 4:"Abril", 5:"Maio", 6:"Junho", 
+        meses_pt = {1:"Janeiro", 2:"Fevereiro", 3:"Março", 4:"Abril", 5:"Maio", 6:"Junho",
                     7:"Julho", 8:"Agosto", 9:"Setembro", 10:"Outubro", 11:"Novembro", 12:"Dezembro"}
         df['Filtro_Mes'] = df['Data de Criação'].dt.month.map(meses_pt).fillna(df['Origem'])
-        
+
         # Limpeza de strings
         for c in ['status_da_proposta', 'status_da_analise', 'motivo_da_decisao']:
             if c in df.columns:
                 df[c] = df[c].astype(str).str.strip()
-        
-        # Coluna K - Limpeza de Moeda Blindada (Resolve valores zerados)
-        col_valor = df.columns[10] 
+
+        # FIX 1: Identificar coluna de valor pelo nome (não por índice fixo)
+        # Tenta encontrar a coluna de valor pelo nome; fallback para índice 10
+        colunas_valor = [c for c in df.columns if 'valor' in c.lower() or 'liberado' in c.lower() or 'aprovado' in c.lower()]
+        col_valor_nome = colunas_valor[0] if colunas_valor else df.columns[10]
+
         def limpa_moeda(valor):
             v = str(valor).upper().replace('R$', '').replace(' ', '').strip()
             if not v or v == 'NAN': return 0.0
@@ -38,49 +41,55 @@ def load_data():
             v = v.replace('.', '').replace(',', '.')
             try: return float(v)
             except: return 0.0
-        
-        df[col_valor] = df[col_valor].apply(limpa_moeda)
+
+        df[col_valor_nome] = df[col_valor_nome].apply(limpa_moeda)
+
+        # Salva o nome da coluna de valor como atributo para uso posterior
+        df.attrs['col_valor'] = col_valor_nome
+
         return df
     except Exception as e:
         st.error(f"Erro ao carregar base: {e}")
         return pd.DataFrame()
 
-# --- ESTA LINHA É ESSENCIAL (Resolve o NameError) ---
+
 df_base = load_data()
 
 # --- FILTROS LATERAIS ---
-if not df_base.empty:
-    st.sidebar.header("🎯 Configurações do Funil")
-    lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].unique().tolist())
-    # O restante do seu código segue aqui...
-else:
+if df_base.empty:
     st.error("Não foi possível carregar os dados. Verifique a conexão com a planilha.")
     st.stop()
 
-# --- FILTROS LATERAIS (SIDEBAR) ---
+# FIX 2: col_valor definido a partir do nome salvo no load, não por índice
+col_valor = df_base.attrs.get('col_valor', df_base.columns[10])
+
+# Mapeamento dinâmico das colunas R (17) e S (18)
+nome_col_r = df_base.columns[17]  # Empresa
+nome_col_s = df_base.columns[18]  # Squad/Equipe
+
 
 def reset_filtros():
-    """Limpa o estado da sessão e recarrega a página"""
+    """Limpa o estado da sessão, cache de dados e recarrega a página"""
     chaves = ['digitador_unico', 'top15_multi', 'empresa_sel', 'squad_sel', 'mes_sel']
     for k in chaves:
         if k in st.session_state:
             del st.session_state[k]
+    # FIX 3: Limpa o cache para forçar recarregamento dos dados da planilha
+    load_data.clear()
     st.rerun()
+
+
+# --- FILTROS LATERAIS (SIDEBAR) ---
 
 st.sidebar.header("🎯 Configurações do Funil")
 
-# 1. Filtro de Mês (Base para todos os outros)
+# 1. Filtro de Mês
 lista_meses = ["Todos"] + sorted(df_base['Filtro_Mes'].unique().tolist())
 mes_sel = st.sidebar.selectbox("Mês de Referência", lista_meses, key="mes_sel")
 
-# Aplica filtro de mês inicial
 df_mes = df_base if mes_sel == "Todos" else df_base[df_base['Filtro_Mes'] == mes_sel]
 
-# Mapeamento dinâmico das colunas R (17) e S (18)
-nome_col_r = df_base.columns[17] # Empresa
-nome_col_s = df_base.columns[18] # Squad/Equipe
-
-# 2. Filtro de Empresa (Coluna R)
+# 2. Filtro de Empresa
 lista_empresa = ["Todos"] + sorted(df_mes[nome_col_r].dropna().unique().tolist())
 empresa_sel = st.sidebar.selectbox("Filtrar Empresa", lista_empresa, key="empresa_sel")
 
@@ -88,7 +97,7 @@ df_empresa = df_mes.copy()
 if empresa_sel != "Todos":
     df_empresa = df_empresa[df_empresa[nome_col_r] == empresa_sel]
 
-# 3. Filtro de Equipe (Coluna S - Squad)
+# 3. Filtro de Equipe
 lista_equipes = ["Todos"] + sorted(df_empresa[nome_col_s].dropna().unique().tolist())
 equipe_sel = st.sidebar.selectbox("Filtrar Equipe", lista_equipes, key="squad_sel")
 
@@ -96,26 +105,31 @@ df_equipe = df_empresa.copy()
 if equipe_sel != "Todos":
     df_equipe = df_equipe[df_equipe[nome_col_s] == equipe_sel]
 
-# 4. Top 15 Pagos (Contextualizado pelo Mês, Empresa e Equipe)
-top_15_pagos = df_equipe[df_equipe['status_da_proposta'] == 'DISBURSED']['Digitado por'].value_counts().nlargest(15).index.tolist()
+# 4. Top 15 Pagos
+top_15_pagos = (
+    df_equipe[df_equipe['status_da_proposta'] == 'DISBURSED']['Digitado por']
+    .value_counts()
+    .nlargest(15)
+    .index.tolist()
+)
 
 st.sidebar.divider()
 
-# 5. Filtros de Digitador
+# 5. Filtros de Digitador (mutex entre si)
 disable_unico = bool(st.session_state.get('top15_multi'))
 disable_top15 = bool(st.session_state.get('digitador_unico') and st.session_state.digitador_unico != "Todos")
 
 dig_sel = st.sidebar.selectbox(
-    "Filtrar Digitador Único", 
-    ["Todos"] + sorted(df_equipe['Digitado por'].unique().tolist()), 
-    key="digitador_unico", 
+    "Filtrar Digitador Único",
+    ["Todos"] + sorted(df_equipe['Digitado por'].dropna().unique().tolist()),
+    key="digitador_unico",
     disabled=disable_unico
 )
 
 top_sel = st.sidebar.multiselect(
-    "Filtrar por Top 15 Pagos", 
-    top_15_pagos, 
-    key="top15_multi", 
+    "Filtrar por Top 15 Pagos",
+    top_15_pagos,
+    key="top15_multi",
     disabled=disable_top15
 )
 
@@ -125,14 +139,18 @@ if st.sidebar.button("🧹 Limpar Todos os Filtros"):
 # --- APLICAÇÃO FINAL DA SELEÇÃO ---
 df_sel = df_equipe.copy()
 
-if st.session_state.get('top15_multi'): 
+if st.session_state.get('top15_multi'):
     df_sel = df_sel[df_sel['Digitado por'].isin(st.session_state['top15_multi'])]
-elif st.session_state.get('digitador_unico') and st.session_state['digitador_unico'] != "Todos": 
+elif st.session_state.get('digitador_unico') and st.session_state['digitador_unico'] != "Todos":
     df_sel = df_sel[df_sel['Digitado por'] == st.session_state['digitador_unico']]
 
-# --- DICIONÁRIOS DE MAPEAMENTO (DRILL-DOWN) ---
 
-map_nao_engajados = {'CREATED': 'Proposta Iniciada', 'TOKEN_SENT': 'Token Enviado'}
+# --- DICIONÁRIOS DE MAPEAMENTO ---
+
+map_nao_engajados = {
+    'CREATED': 'Proposta Iniciada',
+    'TOKEN_SENT': 'Token Enviado'
+}
 
 map_pre_motor = {
     'NO_AVAILABLE_MARGIN': 'Dataprev - Negado - Sem Margem',
@@ -182,41 +200,44 @@ map_nao_validados = {
     'CANCELLED_BY_USER': 'Cancelado pelo Tomador Pós Desembolso'
 }
 
+
 # --- LÓGICA DE CÁLCULO DO FUNIL ---
 
 def get_count(df, mapping, col):
     """Conta registros baseados nos mapeamentos de status"""
     return len(df[df[col].isin(mapping.keys())])
 
+
 def format_br(valor):
     """Formata número para o padrão brasileiro R$ 1.234,56"""
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# Coluna K - Valor Liberado (Índice 10)
-col_valor = df_base.columns[10]
 
 # 1. Novos Leads
 n_leads_sel = len(df_sel)
 
-# 2. Leads com Token Aprovado
+# 2. Token Aprovado
 v_nao_eng_sel = get_count(df_sel, map_nao_engajados, 'status_da_proposta')
 token_aprov_sel = n_leads_sel - v_nao_eng_sel
 
-# 3. Leads Sujeito a Motor
+# 3. Sujeito a Motor
 v_rej_pre_sel = get_count(df_sel, map_pre_motor, 'status_da_analise')
 sujeito_motor_sel = token_aprov_sel - v_rej_pre_sel
 
-# 4. Leads com Propostas Disponíveis + VALOR
+# 4. Propostas Disponíveis + VALOR
 v_rej_motor_sel = get_count(df_sel, map_motor, 'motivo_da_decisao')
 prop_disp_sel = sujeito_motor_sel - v_rej_motor_sel
 
-# Filtrando o DataFrame para somar valores de quem chegou nesta etapa
-df_prop_disp = df_sel[~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) & 
-                      ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) & 
-                      ~df_sel['motivo_da_decisao'].isin(map_motor.keys())]
+# FIX 4: Máscara completa — exclui todas as etapas anteriores para não inflar o valor
+mask_prop_disp = (
+    ~df_sel['status_da_proposta'].isin(map_nao_engajados.keys()) &
+    ~df_sel['status_da_analise'].isin(map_pre_motor.keys()) &
+    ~df_sel['motivo_da_decisao'].isin(map_motor.keys())
+)
+df_prop_disp = df_sel[mask_prop_disp]
 val_prop_disp = float(df_prop_disp[col_valor].sum())
 
-# 5. Leads com Contrato Gerado + VALOR
+# 5. Contrato Gerado + VALOR
 df_contrato_ger = df_prop_disp[~df_prop_disp['status_da_proposta'].isin(map_nao_avancaram.keys())]
 contrato_ger_sel = len(df_contrato_ger)
 val_contrato_ger = float(df_contrato_ger[col_valor].sum())
@@ -225,6 +246,7 @@ val_contrato_ger = float(df_contrato_ger[col_valor].sum())
 df_pagos = df_sel[df_sel['status_da_proposta'] == 'DISBURSED']
 contratos_pagos_sel = len(df_pagos)
 val_pagos = float(df_pagos[col_valor].sum())
+
 
 # --- FUNÇÃO DE EXIBIÇÃO DRILL-DOWN ---
 
@@ -235,14 +257,15 @@ def drill_down_table(title, total_cat, df_s, df_m, mapping, col):
         if not sub_s.empty:
             sub_s['Descrição'] = sub_s[col].map(mapping)
             sub_m['Descrição'] = sub_m[col].map(mapping)
-            # Consolidação (Agrupa nomes iguais e soma)
             res_s = sub_s.groupby('Descrição').size().reset_index(name='Qtd Sel')
             res_m = sub_m.groupby('Descrição').size().reset_index(name='Total Mês')
-            res = pd.merge(res_s, res_m, on='Descrição')
-            res['%'] = (res['Qtd Sel'] / res['Total Mês'] * 100).map("{:.1f}%".format)
+            res = pd.merge(res_s, res_m, on='Descrição', how='left').fillna(0)
+            res['Total Mês'] = res['Total Mês'].astype(int)
+            res['%'] = (res['Qtd Sel'] / res['Total Mês'].replace(0, 1) * 100).map("{:.1f}%".format)
             st.table(res.sort_values(by='Qtd Sel', ascending=False))
         else:
             st.write("Sem subcategorias registradas.")
+
 
 # --- RENDERIZAÇÃO ---
 
@@ -251,7 +274,6 @@ st.title("📊 Dashboard Funil Analítico Topa+")
 col1, col2 = st.columns([1.2, 1])
 
 with col1:
-    # Rótulos que combinam Quantidade e Valor R$
     labels_funil = [
         f"{n_leads_sel}",
         f"{token_aprov_sel}",
@@ -266,19 +288,18 @@ with col1:
         x=[n_leads_sel, token_aprov_sel, sujeito_motor_sel, prop_disp_sel, contrato_ger_sel, contratos_pagos_sel],
         text=labels_funil,
         textinfo="text+percent initial",
-        textposition="inside",      # Força o texto para DENTRO da barra
-        insidetextanchor="middle",   # Centraliza o texto verticalmente
+        textposition="inside",
+        insidetextanchor="middle",
         insidetextfont=dict(color="white", size=14),
         marker=dict(color="royalblue")
     ))
-    
+
     fig.update_layout(
         margin=dict(l=10, r=10, t=10, b=10),
         height=600,
         showlegend=False
     )
-    
-    # ESTA É A LINHA QUE FALTAVA NO SEU CÓDIGO E FAZ O GRÁFICO APARECER!
+
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
@@ -287,5 +308,5 @@ with col2:
     drill_down_table("Leads Sujeito a Motor de Crédito", sujeito_motor_sel, df_sel, df_mes, map_motor, 'motivo_da_decisao')
     drill_down_table("Leads Com Propostas Disponíveis", prop_disp_sel, df_sel, df_mes, map_nao_avancaram, 'status_da_proposta')
     drill_down_table("Leads com Contrato Gerado", contrato_ger_sel, df_sel, df_mes, map_nao_validados, 'status_da_proposta')
-    
+
     st.info(f"💰 **Contratos Pagos: {contratos_pagos_sel}**")
